@@ -1453,7 +1453,7 @@ export function PublishModal({
         setError("请选择有效的发布时间");
         return;
       }
-      if (selectedPublishedAt.getTime() > Date.now() + 60_000) {
+      if (selectedPublishedAt.getTime() > Date.now()) {
         setError("发布时间不能晚于当前时间");
         return;
       }

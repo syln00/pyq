@@ -77,6 +77,7 @@ export async function replacePostMedia(postId: string, mediaIds: string[], trans
 
 export function hasExternalMedia(value: unknown): boolean {
   const text = JSON.stringify(value ?? "");
+  if (/\\?\/uploads\//i.test(text)) return true;
   const urls = text.match(/https?:\\?\/\\?\/[^\s"'<>]+/gi) || [];
   return urls.some((raw) => {
     const url = raw.replace(/\\\//g, "/");

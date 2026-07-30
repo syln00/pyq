@@ -265,7 +265,7 @@ function parsePublishedAt(value: unknown): Date {
   if (value == null || value === "") return new Date();
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) throw new Error("发布时间格式无效");
-  if (date.getTime() > Date.now() + 60_000) throw new Error("发布时间不能晚于当前时间");
+  if (date.getTime() > Date.now()) throw new Error("发布时间不能晚于当前时间");
   return date;
 }
 
@@ -584,15 +584,25 @@ router.post(
     } = req.body;
 
     const visibility = normalizeVisibility(visibilityValue);
-    const publishedAt = parsePublishedAt(req.body.publishedAt);
-    const selectedUserIds = visibility === "selected"
-      ? await validateSelectedUsers(visibleUserIds, req.user!.id)
-      : [];
+    let publishedAt: Date;
+    let selectedUserIds: string[];
+    let requestedMediaIds: string[];
+    let normalizedMusicResult: Awaited<ReturnType<typeof validateS3MusicPayload>>;
+    try {
+      publishedAt = parsePublishedAt(req.body.publishedAt);
+      selectedUserIds = visibility === "selected"
+        ? await validateSelectedUsers(visibleUserIds, req.user!.id)
+        : [];
+      requestedMediaIds = await validateMediaIds(mediaIds, req.user!.id, req.user!.role === "admin");
+      normalizedMusicResult = await validateS3MusicPayload(music, req.user!.id);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "发布参数无效" });
+      return;
+    }
     if (visibility === "selected" && selectedUserIds.length === 0) {
       res.status(400).json({ message: "指定用户可见时至少选择一个用户" });
       return;
     }
-    const requestedMediaIds = await validateMediaIds(mediaIds, req.user!.id, req.user!.role === "admin");
     const externalMedia = hasExternalMedia({ images, cover, music, linkCard, video, douban, content });
     if (visibility !== "public" && externalMedia && req.body.acknowledgeExternalMediaRisk !== true) {
       res.status(400).json({
@@ -602,7 +612,6 @@ router.post(
       return;
     }
 
-    const normalizedMusicResult = await validateS3MusicPayload(music, req.user!.id);
     const normalizedMusic = normalizedMusicResult.value;
     const approvedMediaIds = [...new Set([...requestedMediaIds, ...normalizedMusicResult.mediaIds])];
 
@@ -735,11 +744,6 @@ router.put(
       return;
     }
 
-    const normalizedMusicResult = req.body.music !== undefined
-      ? await validateS3MusicPayload(req.body.music, req.user!.id)
-      : { value: post.music, mediaIds: [] as string[] };
-    const normalizedMusic = normalizedMusicResult.value;
-
     const isAdmin = req.user!.role === "admin";
     const finalIsAd = isAdmin && req.body.isAd !== undefined ? req.body.isAd : post.isAd;
     const incomingPinned = req.body.pinned;
@@ -757,17 +761,33 @@ router.put(
         ? normalizeVisibility(req.body.visibility)
         : post.visibility;
     const currentVisibleIds = ((post as any).visibleUsers || []).map((u: any) => u.id);
-    const selectedUserIds = visibility === "selected"
-      ? await validateSelectedUsers(req.body.visibleUserIds ?? currentVisibleIds, post.userId)
-      : [];
+    const currentMediaIds = ((post as any).mediaItems || []).map((m: any) => m.id);
+    let normalizedMusicResult: Awaited<ReturnType<typeof validateS3MusicPayload>>;
+    let selectedUserIds: string[];
+    let requestedMediaIds: string[];
+    let nextPublishedAt: Date;
+    try {
+      normalizedMusicResult = req.body.music !== undefined
+        ? await validateS3MusicPayload(req.body.music, req.user!.id)
+        : { value: post.music, mediaIds: [] as string[] };
+      selectedUserIds = visibility === "selected"
+        ? await validateSelectedUsers(req.body.visibleUserIds ?? currentVisibleIds, post.userId)
+        : [];
+      requestedMediaIds = req.body.mediaIds !== undefined
+        ? await validateMediaIds(req.body.mediaIds, post.userId, isAdmin)
+        : currentMediaIds;
+      nextPublishedAt = req.body.publishedAt !== undefined
+        ? parsePublishedAt(req.body.publishedAt)
+        : post.publishedAt;
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "保存参数无效" });
+      return;
+    }
+    const normalizedMusic = normalizedMusicResult.value;
     if (visibility === "selected" && selectedUserIds.length === 0) {
       res.status(400).json({ message: "指定用户可见时至少选择一个用户" });
       return;
     }
-    const currentMediaIds = ((post as any).mediaItems || []).map((m: any) => m.id);
-    const requestedMediaIds = req.body.mediaIds !== undefined
-      ? await validateMediaIds(req.body.mediaIds, post.userId, isAdmin)
-      : currentMediaIds;
     const approvedMediaIds = [...new Set([...requestedMediaIds, ...normalizedMusicResult.mediaIds])];
     const finalPayload = {
       content: req.body.content !== undefined ? req.body.content : post.content,
@@ -811,7 +831,7 @@ router.put(
       pinned: finalPinned,
       status: req.body.status !== undefined ? req.body.status : post.status,
       visibility,
-      publishedAt: req.body.publishedAt !== undefined ? parsePublishedAt(req.body.publishedAt) : post.publishedAt,
+      publishedAt: nextPublishedAt,
       }, { transaction });
       await replaceVisibleUsers(post.id, selectedUserIds, transaction);
       await replacePostMedia(post.id, approvedMediaIds, transaction);

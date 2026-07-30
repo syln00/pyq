@@ -16,6 +16,7 @@ export function collectManagedMediaIds(...values: unknown[]): string[] {
 
 export function hasExternalMediaReferences(...values: unknown[]): boolean {
   const text = JSON.stringify(values);
+  if (/\\?\/uploads\//i.test(text)) return true;
   const urls = text.match(/https?:\\?\/\\?\/[^\s"'<>]+/gi) || [];
   return urls.some((raw) => !raw.replace(/\\\//g, "/").includes("/api/media/"));
 }
