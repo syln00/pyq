@@ -25,41 +25,140 @@
 | 媒体 | 私有 S3 API：MinIO、Cloudflare R2、NAS S3 |
 | 自托管入口 | Caddy，同源 `/api`，自动 HTTPS |
 
-## Docker 快速启动
+## Docker 服务器部署
 
-要求 Linux 服务器已安装 Docker Engine 和 Docker Compose v2。
+项目已经包含 Next.js、Express、MySQL 8、MinIO 和 Caddy 的完整 Compose。Caddy 只对外开放 80/443，MySQL、MinIO Console 和应用容器保留在 Docker 内部网络。
+
+### 1. 准备服务器和域名
+
+- 安装 Docker Engine 和 Docker Compose v2 的 Linux 服务器；
+- 至少 2 GB 内存，推荐 4 GB；
+- 准备站点域名和 S3 子域名，例如 `pyq.example.com`、`s3.pyq.example.com`；
+- 将两个域名的 A/AAAA 记录指向服务器；
+- 防火墙开放 TCP 80、TCP/UDP 443，不要开放 3306、9000、9001。
+
+### 2. 下载项目
+
+```bash
+git clone https://github.com/syln00/pyq.git
+cd pyq
+```
+
+### 3. 配置环境变量
 
 ```bash
 cp .env.docker.example .env
 ```
 
-修改 `.env` 中所有密码和密钥。本机测试可保留 `http://localhost`；公网部署必须配置站点域名、S3 子域名，并设置：
+公网 HTTPS 部署的核心配置示例：
 
 ```env
+SITE_ADDRESS=pyq.example.com
+SITE_URL=https://pyq.example.com
+S3_ADDRESS=s3.pyq.example.com
 SESSION_COOKIE_SECURE=true
+
+MYSQL_DATABASE=moment_blog
+MYSQL_USER=pyq
+MYSQL_PASSWORD=replace-with-a-long-database-password
+MYSQL_ROOT_PASSWORD=replace-with-a-different-root-password
+
+MINIO_ROOT_USER=pyq-minio
+MINIO_ROOT_PASSWORD=replace-with-a-long-minio-password
+
+S3_ENDPOINT=http://minio:9000
+S3_PRESIGN_ENDPOINT=https://s3.pyq.example.com
+S3_REGION=us-east-1
+S3_ACCESS_KEY_ID=pyq-minio
+S3_SECRET_ACCESS_KEY=replace-with-the-same-minio-password
+S3_BUCKET=pyq-media
+S3_FORCE_PATH_STYLE=true
+S3_SIGNED_GET_TTL_SECONDS=300
+
+JWT_SECRET=replace-with-at-least-32-random-characters
+JWT_EXPIRES_IN=7d
+ADMIN_EMAIL=admin@example.com
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=replace-with-a-strong-admin-password
+REVALIDATE_SECRET=replace-with-a-random-revalidate-secret
+CRON_SECRET=replace-with-a-random-cron-secret
 ```
 
-启动完整栈：
+`SITE_ADDRESS`、`S3_ADDRESS` 不带协议，`SITE_URL`、`S3_PRESIGN_ENDPOINT` 必须带 `https://`。使用内置 MinIO 时，`MINIO_ROOT_USER` 与 `S3_ACCESS_KEY_ID` 相同，`MINIO_ROOT_PASSWORD` 与 `S3_SECRET_ACCESS_KEY` 相同。
+
+随机密钥可以用以下命令生成：
+
+```bash
+openssl rand -hex 32
+```
+
+这些数据库密码和程序密钥不需要人工记忆，建议保存在密码管理器中。服务器上的 `.env` 应限制为仅当前用户可读写，并且绝不能提交到 Git：
+
+```bash
+chmod 600 .env
+```
+
+### 4. 启动服务
+
+先验证配置是否完整：
+
+```bash
+docker compose config --quiet
+```
+
+构建并启动完整服务：
 
 ```bash
 docker compose up -d --build
 docker compose ps
 ```
 
-默认包含：
+查看首次初始化日志：
 
-- Caddy：只对外开放 80/443；
-- Next.js 前端；
-- Express 后端；
-- MySQL 8 持久卷；
-- 私有 MinIO 持久卷；
-- 一次性 `db-init` 和 `minio-init`。
+```bash
+docker compose logs --tail=100 db-init minio-init backend frontend caddy
+```
 
-首次初始化会使用 `.env` 的 `ADMIN_EMAIL`、`ADMIN_USERNAME`、`ADMIN_PASSWORD` 创建管理员。已有管理员不会被重置密码。
+`db-init` 和 `minio-init` 正常情况下会执行成功后退出；MySQL、MinIO、后端、前端和 Caddy 应保持 running/healthy。Caddy 会在域名解析和 80/443 可访问后自动申请 HTTPS 证书。
 
-完整步骤见 [Docker 自托管指南](docs/SELF_HOSTING.md)。
+### 5. 首次登录
 
-## 存储迁移与备份
+访问 `https://pyq.example.com/admin/login`，使用 `.env` 中的 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 登录。首次初始化会创建管理员；管理员已经存在时，修改 `.env` 不会自动修改其密码。
+
+注册默认关闭。管理员可以在后台开启注册、审核新用户并授予普通用户发布权限。
+
+### 6. 部署后验证（可选）
+
+建议在正式发布内容前测试管理员登录、用户审核、三种可见性、历史发布时间和图片/音视频上传。还可以重启 Compose，确认数据库和媒体对象仍然存在：
+
+```bash
+docker compose restart
+```
+
+### 7. 配置备份（可选）
+
+在服务器安装并配置 `rclone` 后，可以同时备份 MySQL 和 MinIO 对象：
+
+```bash
+RCLONE_SOURCE=pyq-minio:pyq-media \
+  ./scripts/backup.sh /mnt/backups/pyq
+```
+
+建议将备份复制到 NAS、另一台服务器或其他存储介质，不要只保留在当前服务器硬盘上。
+
+### 8. 更新版本
+
+```bash
+git pull --ff-only
+docker compose up -d --build
+docker compose ps
+```
+
+不要执行 `docker compose down -v`，除非明确要删除数据库、媒体对象和 Caddy 证书卷。
+
+完整说明见 [Docker 自托管指南](docs/SELF_HOSTING.md)。
+
+## 存储迁移（可选）
 
 项目按原始 `objectKey` 管理对象。MinIO 迁往 R2、NAS S3 或另一台服务器时，复制对象并修改 `S3_*` 环境变量即可。
 
