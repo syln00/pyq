@@ -13,6 +13,7 @@ next-env.d.ts
 .env
 .env.*
 !.env.example
+!.env.docker.example
 
 # Logs
 logs/
@@ -28,6 +29,7 @@ backend/public/uploads/*
 
 # Local migration backup inventories
 backend/backups/
+/backups/
 
 # Docker runtime data
 mysql-data/
