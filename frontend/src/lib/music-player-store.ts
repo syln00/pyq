@@ -2,14 +2,14 @@ import { create } from "zustand";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
-/** Returns a durable R2/public URL. No external source is resolved in the browser. */
+/** Returns a stable managed-media URL. No external source is resolved in the browser. */
 export function getStaticMusicUrl(music: { url?: string; mp3url?: string }): string {
   const url = music.url || music.mp3url || "";
   if (!url) return "";
   return url.startsWith("http") ? url : `${API_URL.replace(/\/api$/, "")}${url}`;
 }
 
-/** Dynamic/article music is always a static R2-backed audio item. */
+/** Dynamic/article music is always a managed S3-backed audio item. */
 export interface PostMusicInfo {
   postId: string;
   url: string;
@@ -20,7 +20,7 @@ export interface PostMusicInfo {
   lyric?: string;
 }
 
-/** Static R2 playlist item. */
+/** Static S3 playlist item. */
 export interface PlaylistTrack {
   id: string;
   name: string;
@@ -158,7 +158,7 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => ({
   prepareTrack: (index) => {
     const track = get().playlist[index];
     if (!track?.mp3url) {
-      set({ switching: false, isLoading: false, audioError: true, audioErrorMessage: "该歌曲的 R2 音频文件不可用。" });
+      set({ switching: false, isLoading: false, audioError: true, audioErrorMessage: "该歌曲的 S3 音频文件不可用。" });
       return null;
     }
     set({

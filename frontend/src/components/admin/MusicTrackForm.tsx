@@ -100,7 +100,7 @@ export default function MusicTrackForm({ track, onSaved, onCancel }: MusicTrackF
   };
 
   const handleAudioFile = async (file: File) => {
-    setBusy(true); setMessage("正在解析音乐信息并上传到 R2…");
+    setBusy(true); setMessage("正在解析音乐信息并上传到 S3…");
     try {
       const metadata = await parseAudioMetadata(file);
       const audio = await uploadDirect(file, token(), "audio");
@@ -128,7 +128,7 @@ export default function MusicTrackForm({ track, onSaved, onCancel }: MusicTrackF
       const lrc = await file.text();
       const lyricMedia = await uploadDirect(file, token(), "lyric");
       setDraft((current) => ({ ...current, lyricMedia, lrc }));
-      setMessage("歌词已上传到 R2 并加入媒体库。");
+      setMessage("歌词已上传到 S3 并加入媒体库。");
     } catch (error) { setMessage(error instanceof Error ? error.message : "上传歌词失败"); }
     finally { setBusy(false); }
   };
@@ -145,7 +145,7 @@ export default function MusicTrackForm({ track, onSaved, onCancel }: MusicTrackF
   };
 
   const save = async () => {
-    if (!draft.audio) { setMessage("请先上传或选择 R2 音频文件"); return; }
+    if (!draft.audio) { setMessage("请先上传或选择 S3 音频文件"); return; }
     setBusy(true); setMessage("");
     try {
       let cover = draft.cover;
@@ -181,7 +181,7 @@ export default function MusicTrackForm({ track, onSaved, onCancel }: MusicTrackF
     {message && <p className="rounded-lg bg-adm-input px-3 py-2 text-sm text-adm-text-secondary">{message}</p>}
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="rounded-lg border border-dashed border-adm-border p-3 text-sm text-adm-text-secondary"><span className="mb-2 flex items-center gap-2"><Upload className="h-4 w-4" />上传音频并自动解析</span><input type="file" accept={AUDIO_FILE_ACCEPT} disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void handleAudioFile(file); event.currentTarget.value = ""; }} /></label>
-      <button type="button" onClick={() => setPicker("audio")} className="rounded-lg border border-adm-border p-3 text-left text-sm text-adm-text-secondary"><Library className="mr-2 inline h-4 w-4" />从 R2 媒体库选择音频</button>
+      <button type="button" onClick={() => setPicker("audio")} className="rounded-lg border border-adm-border p-3 text-left text-sm text-adm-text-secondary"><Library className="mr-2 inline h-4 w-4" />从 S3 媒体库选择音频</button>
     </div>
     {draft.audio && <p className="truncate text-xs text-adm-text-tertiary">当前音频：{draft.audio.filename}</p>}
     <div className="grid gap-3 sm:grid-cols-2"><input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="歌曲名称" className="rounded-lg border border-adm-border bg-adm-input px-3 py-2 text-sm text-adm-text" /><input value={draft.artist} onChange={(event) => setDraft((current) => ({ ...current, artist: event.target.value }))} placeholder="歌手（可选）" className="rounded-lg border border-adm-border bg-adm-input px-3 py-2 text-sm text-adm-text" /></div>
@@ -190,12 +190,12 @@ export default function MusicTrackForm({ track, onSaved, onCancel }: MusicTrackF
       <button type="button" onClick={() => setPicker("cover")} className="rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary">从媒体库选择封面</button>
       {(draft.cover || embeddedCover) && <button type="button" onClick={() => { setDraft((current) => ({ ...current, cover: null })); setEmbeddedCover(null); }} className="rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary"><X className="mr-1 inline h-3.5 w-3.5" />清除封面</button>}
     </div>
-    <div className="flex flex-wrap gap-2"><label className="cursor-pointer rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary"><Upload className="mr-1.5 inline h-4 w-4" />上传 LRC 到 R2<input type="file" accept={LYRIC_FILE_ACCEPT} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void handleLyricFile(file); event.currentTarget.value = ""; }} /></label><button type="button" onClick={() => setPicker("lyric")} className="rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary">从歌词资源库选择</button>{draft.lyricMedia && <button type="button" onClick={() => setDraft((current) => ({ ...current, lyricMedia: null }))} className="rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary">解除歌词文件关联</button>}</div>
+    <div className="flex flex-wrap gap-2"><label className="cursor-pointer rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary"><Upload className="mr-1.5 inline h-4 w-4" />上传 LRC 到 S3<input type="file" accept={LYRIC_FILE_ACCEPT} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void handleLyricFile(file); event.currentTarget.value = ""; }} /></label><button type="button" onClick={() => setPicker("lyric")} className="rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary">从歌词资源库选择</button>{draft.lyricMedia && <button type="button" onClick={() => setDraft((current) => ({ ...current, lyricMedia: null }))} className="rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary">解除歌词文件关联</button>}</div>
     {draft.lyricMedia && <p className="truncate text-xs text-adm-text-tertiary">歌词资源：{draft.lyricMedia.filename}</p>}
     <LyricEditor audioUrl={draft.audio?.url || ""} value={draft.lrc} onChange={(lrc) => setDraft((current) => ({ ...current, lrc }))} />
     <div className="flex gap-2"><button type="button" onClick={() => void save()} disabled={busy || !draft.audio} className="rounded-lg bg-adm-primary px-4 py-2 text-sm font-medium text-adm-primary-text disabled:opacity-50">{busy ? <Loader2 className="mr-1.5 inline h-4 w-4 animate-spin" /> : null}{track ? "保存修改" : "添加到歌单"}</button>{onCancel && <button type="button" onClick={onCancel} disabled={busy} className="rounded-lg border border-adm-border px-4 py-2 text-sm text-adm-text-secondary">取消</button>}</div>
-    <MediaPicker open={picker === "audio"} onClose={() => setPicker(null)} category="audio" title="选择 R2 音频" onSelect={(audio) => { setDraft((current) => ({ ...current, audio, title: current.title || audio.filename.replace(/\.[^.]+$/, "") })); setEmbeddedCover(null); }} />
-    <MediaPicker open={picker === "cover"} onClose={() => setPicker(null)} category="image" title="选择 R2 封面" onSelect={(cover) => { setDraft((current) => ({ ...current, cover })); setEmbeddedCover(null); }} />
-    <MediaPicker open={picker === "lyric"} onClose={() => setPicker(null)} kind="lyric" title="选择 R2 歌词" onSelect={(item) => void chooseLyric(item)} />
+    <MediaPicker open={picker === "audio"} onClose={() => setPicker(null)} category="audio" title="选择 S3 音频" onSelect={(audio) => { setDraft((current) => ({ ...current, audio, title: current.title || audio.filename.replace(/\.[^.]+$/, "") })); setEmbeddedCover(null); }} />
+    <MediaPicker open={picker === "cover"} onClose={() => setPicker(null)} category="image" title="选择 S3 封面" onSelect={(cover) => { setDraft((current) => ({ ...current, cover })); setEmbeddedCover(null); }} />
+    <MediaPicker open={picker === "lyric"} onClose={() => setPicker(null)} kind="lyric" title="选择 S3 歌词" onSelect={(item) => void chooseLyric(item)} />
   </div>;
 }

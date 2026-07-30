@@ -15,7 +15,7 @@ interface MusicPanelProps {
   token: string;
 }
 
-/** R2-uploaded audio picker for posts and articles. External sources and URLs are intentionally unsupported. */
+/** S3-uploaded audio picker for posts and articles. External sources and URLs are intentionally unsupported. */
 export default function MusicPanel({ open, onClose, onConfirm, initial, token }: MusicPanelProps) {
   const [name, setName] = useState("");
   const [artist, setArtist] = useState("");
@@ -73,7 +73,7 @@ export default function MusicPanel({ open, onClose, onConfirm, initial, token }:
 
   const confirm = () => {
     if (!audioUrl) {
-      setError("请先上传 R2 音频文件");
+      setError("请先上传 S3 音频文件");
       return;
     }
     onConfirm({
@@ -91,7 +91,7 @@ export default function MusicPanel({ open, onClose, onConfirm, initial, token }:
     <AdminModal
       open={open}
       onClose={onClose}
-      title={initial ? "编辑 R2 音频" : "添加 R2 音频"}
+      title={initial ? "编辑 S3 音频" : "添加 S3 音频"}
       footer={<>
         <button type="button" onClick={onClose} className="rounded-lg border border-adm-border px-4 py-2 text-sm text-adm-text-secondary transition-colors hover:bg-adm-card-hover">取消</button>
         <button type="button" onClick={confirm} disabled={!audioUrl} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-700 disabled:opacity-40 dark:bg-white dark:text-gray-900">确认</button>
@@ -104,10 +104,10 @@ export default function MusicPanel({ open, onClose, onConfirm, initial, token }:
       </div>
       <div className="space-y-4">
         <div>
-          <label className="mb-1.5 block text-xs font-medium text-adm-text-secondary">R2 音频文件</label>
+          <label className="mb-1.5 block text-xs font-medium text-adm-text-secondary">S3 音频文件</label>
           {audioUrl ? (
-            <div className="flex items-center justify-between rounded-lg border border-adm-border bg-adm-input px-3 py-2.5"><div className="flex min-w-0 items-center gap-2"><Music className="h-4 w-4 shrink-0 text-adm-text-tertiary" /><span className="truncate text-sm text-adm-text">{audioName || name || "R2 音频已上传"}</span></div><label className="cursor-pointer text-xs text-adm-text-secondary hover:text-adm-text">重新上传<input type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/aac" className="hidden" onChange={(event) => { void handleUploadAudio(event.target.files); event.target.value = ""; }} /></label></div>
-          ) : <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-adm-border py-6 transition-colors hover:border-gray-400"><input type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/aac" className="hidden" onChange={(event) => { void handleUploadAudio(event.target.files); event.target.value = ""; }} />{uploadingAudio ? <Loader2 className="h-8 w-8 animate-spin text-adm-text-tertiary" /> : <><Upload className="h-7 w-7 text-adm-text-tertiary" /><p className="mt-1.5 text-sm text-adm-text-tertiary">点击上传 R2 音频文件</p><p className="mt-0.5 text-[11px] text-adm-text-tertiary">支持 MP3/WAV/OGG/AAC，最大 50MB</p></>}</label>}
+            <div className="flex items-center justify-between rounded-lg border border-adm-border bg-adm-input px-3 py-2.5"><div className="flex min-w-0 items-center gap-2"><Music className="h-4 w-4 shrink-0 text-adm-text-tertiary" /><span className="truncate text-sm text-adm-text">{audioName || name || "S3 音频已上传"}</span></div><label className="cursor-pointer text-xs text-adm-text-secondary hover:text-adm-text">重新上传<input type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/aac" className="hidden" onChange={(event) => { void handleUploadAudio(event.target.files); event.target.value = ""; }} /></label></div>
+          ) : <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-adm-border py-6 transition-colors hover:border-gray-400"><input type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/aac" className="hidden" onChange={(event) => { void handleUploadAudio(event.target.files); event.target.value = ""; }} />{uploadingAudio ? <Loader2 className="h-8 w-8 animate-spin text-adm-text-tertiary" /> : <><Upload className="h-7 w-7 text-adm-text-tertiary" /><p className="mt-1.5 text-sm text-adm-text-tertiary">点击上传 S3 音频文件</p><p className="mt-0.5 text-[11px] text-adm-text-tertiary">支持 MP3/WAV/OGG/AAC，最大 50MB</p></>}</label>}
         </div>
         <div><label className="mb-1.5 block text-xs font-medium text-adm-text-secondary">歌曲名称</label><input value={name} onChange={(event) => setName(event.target.value)} placeholder="歌曲名称" className="w-full rounded-lg border border-adm-border bg-adm-input px-3 py-2 text-sm text-adm-text focus:border-gray-400 focus:outline-none" /></div>
         <div><label className="mb-1.5 block text-xs font-medium text-adm-text-secondary">艺术家</label><input value={artist} onChange={(event) => setArtist(event.target.value)} placeholder="歌手名（可选）" className="w-full rounded-lg border border-adm-border bg-adm-input px-3 py-2 text-sm text-adm-text focus:border-gray-400 focus:outline-none" /></div>

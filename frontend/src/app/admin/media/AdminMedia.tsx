@@ -401,7 +401,7 @@ function MediaCard({ item, onClick }: { item: MediaItem; onClick: () => void }) 
       {/* 存储类型角标 */}
       <div className="absolute right-1 top-1 flex items-center gap-0.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] text-white backdrop-blur-sm">
         <Cloud className="h-2.5 w-2.5" />
-        R2
+        S3
       </div>
 
     </button>
@@ -531,7 +531,7 @@ function MediaDetailModal({
             <div className="flex justify-between">
               <span className="text-adm-text-tertiary">存储位置</span>
               <span className="flex items-center gap-1 text-adm-text-secondary">
-                <Cloud className="h-3 w-3" /> Cloudflare R2
+                <Cloud className="h-3 w-3" /> 私有 S3
               </span>
             </div>
             <div className="flex justify-between">

@@ -1,12 +1,12 @@
 /**
  * 上传路由
- * 图片/音频/视频上传统一存储到 Cloudflare R2。
+ * 图片/音频/视频上传统一存储到私有 S3。
  * 所有上传的文件都会记录到 Media 表（媒体库）。
  *
  * Vercel Serverless 函数请求体上限约 4.5MB（平台硬限制，无法通过配置提高），
  * 因此除了原有的"直接上传到后端"接口（仅适合小文件），本文件还提供了
  * presign / confirm 两个接口，用于大文件（尤其是视频、动态照片）从浏览器
- * 直接 PUT 到 R2，完全绕开后端函数。详见 VERCEL_DEPLOYMENT.md。
+ * 直接 PUT 到 S3，完全绕开后端函数。详见 VERCEL_DEPLOYMENT.md。
  */
 import { Router } from "express";
 import path from "path";
@@ -25,7 +25,7 @@ import { extractMotionPhoto } from "../services/motion-photo";
 
 const router = Router();
 
-// memoryStorage：传统部署的小文件兼容路径。生产上传应走 R2 直传。
+// memoryStorage：传统部署的小文件兼容路径。生产上传应走 S3 直传。
 const storage = multer.memoryStorage();
 
 const IMAGE_MIMES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/jpg"];
@@ -87,7 +87,7 @@ const motionPhotoUpload = multer({
   },
 });
 
-// POST /api/upload - upload an image (admin only)
+// POST /api/upload - upload an image (publisher only)
 router.post("/", authenticate, requirePublisher, imageUpload.single("image"), async (req: AuthRequest, res) => {
   if (!req.file) {
     res.status(400).json({ message: "没有上传文件" });
@@ -106,7 +106,7 @@ router.post("/", authenticate, requirePublisher, imageUpload.single("image"), as
   }
 });
 
-// POST /api/upload/audio - upload an audio file (admin only)
+// POST /api/upload/audio - upload an audio file (publisher only)
 router.post("/audio", authenticate, requirePublisher, audioUpload.single("audio"), async (req: AuthRequest, res) => {
   if (!req.file) {
     res.status(400).json({ message: "没有上传文件" });
@@ -125,10 +125,10 @@ router.post("/audio", authenticate, requirePublisher, audioUpload.single("audio"
   }
 });
 
-// POST /api/upload/video - upload a video file (admin only)
+// POST /api/upload/video - upload a video file (publisher only)
 // 注意：Vercel Serverless 函数请求体上限约 4.5MB，超过该大小的视频
 // 在部署到 Vercel 后会在到达这里之前就被平台拒绝（413）。
-// 大文件请改用 POST /api/upload/presign + PUT 到 R2 + POST /api/upload/confirm。
+// 大文件请改用 POST /api/upload/presign + PUT 到 S3 + POST /api/upload/confirm。
 router.post("/video", authenticate, requirePublisher, videoUpload.single("video"), async (req: AuthRequest, res) => {
   if (!req.file) {
     res.status(400).json({ message: "没有上传文件" });
@@ -195,12 +195,12 @@ router.post(
 );
 
 // ===== 大文件直传（presign / confirm）=====
-// 仅 R2 支持预签名直传。流程：
+// S3 兼容存储使用预签名直传。流程：
 //   1. 前端调用 /presign 拿到 uploadUrl + key
-//   2. 前端用 fetch(uploadUrl, { method: "PUT", body: file }) 直接传给 R2
+//   2. 前端用 fetch(uploadUrl, { method: "PUT", body: file }) 直接传给 S3
 //   3. 前端调用 /confirm，后端登记 Media 记录并返回最终 URL
 
-// POST /api/upload/presign — 获取预签名直传 URL（admin only）
+// POST /api/upload/presign — 获取预签名直传 URL（publisher only）
 // body: { filename: string, mimeType: string, kind?: "image"|"audio"|"video" }
 router.post("/presign", authenticate, requirePublisher, async (req: AuthRequest, res) => {
   const { filename, mimeType } = req.body || {};

@@ -84,7 +84,7 @@ export default function AdminMusic() {
   };
 
   const removeTrack = async (id: string) => {
-    if (!confirm("仅从歌单移除此歌曲，不会删除 R2 文件。继续吗？")) return;
+    if (!confirm("仅从歌单移除此歌曲，不会删除 S3 文件。继续吗？")) return;
     const response = await apiFetch(`/music/admin/tracks/${id}`, { method: "DELETE" });
     if (!response.ok) {
       const data = await response.json().catch(() => null);
@@ -135,12 +135,12 @@ export default function AdminMusic() {
       <label className="mt-4 flex cursor-pointer items-center justify-between rounded-lg bg-adm-input px-3 py-2 text-sm text-adm-text"><span>进入网站尝试自动播放</span><input type="checkbox" checked={autoplay} onChange={(event) => setAutoplay(event.target.checked)} className="h-4 w-4 accent-adm-primary" /></label>
     </section>
     <section className="mb-6 rounded-xl border border-adm-border bg-adm-card p-4">
-      <h2 className="mb-4 flex items-center gap-2 font-semibold text-adm-text">{editing ? <><Pencil className="h-4 w-4" />编辑歌曲</> : <><Plus className="h-4 w-4" />添加 R2 音频</>}</h2>
+      <h2 className="mb-4 flex items-center gap-2 font-semibold text-adm-text">{editing ? <><Pencil className="h-4 w-4" />编辑歌曲</> : <><Plus className="h-4 w-4" />添加 S3 音频</>}</h2>
       <MusicTrackForm track={editing} onSaved={handleSaved} onCancel={editing ? () => setEditing(null) : undefined} />
     </section>
     <section className="rounded-xl border border-adm-border bg-adm-card p-4">
       <div className="mb-3 flex items-center justify-between"><h2 className="font-semibold text-adm-text">歌曲列表</h2>{ordering && <span className="text-xs text-adm-text-tertiary">正在保存排序…</span>}</div>
-      {loading ? <p className="text-sm text-adm-text-tertiary">加载中...</p> : tracks.length === 0 ? <p className="py-8 text-center text-sm text-adm-text-tertiary">歌单为空，请添加 R2 音频文件。</p> : <div className="space-y-2">{tracks.map((track, index) => <div key={track.id} className="flex items-center gap-3 rounded-lg bg-adm-input p-2"><GripVertical className="h-4 w-4 text-adm-text-tertiary" />{track.cover ? <img src={track.cover} alt="" className="h-10 w-10 rounded object-cover" /> : <Music className="h-8 w-8 p-2 text-adm-text-tertiary" />}<div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-adm-text">{track.name}</p><p className="truncate text-xs text-adm-text-tertiary">{track.artist || "未知艺术家"}{track.lyricMediaId ? " · R2 歌词" : track.lrc ? " · 内联歌词" : ""}</p></div><div className="flex gap-1"><button onClick={() => move(index, -1)} disabled={index === 0} className="px-2 text-adm-text-secondary disabled:opacity-30">↑</button><button onClick={() => move(index, 1)} disabled={index === tracks.length - 1} className="px-2 text-adm-text-secondary disabled:opacity-30">↓</button><button onClick={() => setEditing(track)} className="rounded p-1 text-adm-text-secondary" aria-label="编辑歌曲"><Pencil className="h-4 w-4" /></button><button onClick={() => void removeTrack(track.id)} className="rounded p-1 text-adm-danger" aria-label="移除歌曲"><Trash2 className="h-4 w-4" /></button></div></div>)}</div>}
+      {loading ? <p className="text-sm text-adm-text-tertiary">加载中...</p> : tracks.length === 0 ? <p className="py-8 text-center text-sm text-adm-text-tertiary">歌单为空，请添加 S3 音频文件。</p> : <div className="space-y-2">{tracks.map((track, index) => <div key={track.id} className="flex items-center gap-3 rounded-lg bg-adm-input p-2"><GripVertical className="h-4 w-4 text-adm-text-tertiary" />{track.cover ? <img src={track.cover} alt="" className="h-10 w-10 rounded object-cover" /> : <Music className="h-8 w-8 p-2 text-adm-text-tertiary" />}<div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-adm-text">{track.name}</p><p className="truncate text-xs text-adm-text-tertiary">{track.artist || "未知艺术家"}{track.lyricMediaId ? " · S3 歌词" : track.lrc ? " · 内联歌词" : ""}</p></div><div className="flex gap-1"><button onClick={() => move(index, -1)} disabled={index === 0} className="px-2 text-adm-text-secondary disabled:opacity-30">↑</button><button onClick={() => move(index, 1)} disabled={index === tracks.length - 1} className="px-2 text-adm-text-secondary disabled:opacity-30">↓</button><button onClick={() => setEditing(track)} className="rounded p-1 text-adm-text-secondary" aria-label="编辑歌曲"><Pencil className="h-4 w-4" /></button><button onClick={() => void removeTrack(track.id)} className="rounded p-1 text-adm-danger" aria-label="移除歌曲"><Trash2 className="h-4 w-4" /></button></div></div>)}</div>}
     </section>
   </div>;
 }

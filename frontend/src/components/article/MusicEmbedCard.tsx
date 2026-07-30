@@ -74,7 +74,7 @@ export default function MusicEmbedCard({ music, postId }: MusicEmbedCardProps) {
 
     try {
       const playUrl = getStaticMusicUrl(music);
-      if (!playUrl) throw new Error("该文章没有可播放的 R2 音频文件。");
+      if (!playUrl) throw new Error("该文章没有可播放的 S3 音频文件。");
       setActiveMusic(postId, {
         postId,
         url: playUrl,

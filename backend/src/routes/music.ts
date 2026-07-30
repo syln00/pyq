@@ -126,24 +126,24 @@ router.put("/admin", authenticate, requireAdmin, async (req: AuthRequest, res: R
   }
 });
 
-// POST /api/music/admin/tracks — attach existing R2 media as a playlist item.
+// POST /api/music/admin/tracks — attach existing S3 media as a playlist item.
 router.post("/admin/tracks", authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const audio = await getOwnedMedia(req.body?.audioMediaId, req.user!.id, "audio");
     if (!audio) {
-      res.status(400).json({ message: "请选择本人上传的 R2 音频文件" });
+      res.status(400).json({ message: "请选择本人上传的 S3 音频文件" });
       return;
     }
     const coverMediaId = req.body?.coverMediaId;
     const cover = coverMediaId == null || coverMediaId === "" ? null : await getOwnedMedia(coverMediaId, req.user!.id, "image");
     if (coverMediaId && !cover) {
-      res.status(400).json({ message: "封面必须是本人上传的 R2 图片" });
+      res.status(400).json({ message: "封面必须是本人上传的 S3 图片" });
       return;
     }
     const lyricMediaId = req.body?.lyricMediaId;
     const lyricMedia = lyricMediaId ? await getOwnedLyricMedia(lyricMediaId, req.user!.id) : null;
     if (lyricMediaId && !lyricMedia) {
-      res.status(400).json({ message: "歌词文件必须是本人上传的 R2 歌词媒体" });
+      res.status(400).json({ message: "歌词文件必须是本人上传的 S3 歌词媒体" });
       return;
     }
     const title = readText(req.body?.title, "歌曲名称", 255, false) || audio.filename.replace(/\.[^.]+$/, "") || "未命名歌曲";
@@ -174,7 +174,7 @@ router.post("/admin/tracks", authenticate, requireAdmin, async (req: AuthRequest
   }
 });
 
-// PATCH /api/music/admin/tracks/:id — update playlist metadata or replace owned R2 media.
+// PATCH /api/music/admin/tracks/:id — update playlist metadata or replace owned S3 media.
 router.patch("/admin/tracks/:id", authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const playlist = await getDefaultPlaylist();
@@ -187,7 +187,7 @@ router.patch("/admin/tracks/:id", authenticate, requireAdmin, async (req: AuthRe
     if (req.body?.audioMediaId !== undefined) {
       const audio = await getOwnedMedia(req.body.audioMediaId, req.user!.id, "audio");
       if (!audio) {
-        res.status(400).json({ message: "请选择本人上传的 R2 音频文件" });
+        res.status(400).json({ message: "请选择本人上传的 S3 音频文件" });
         return;
       }
       updates.audioMediaId = audio.id;
@@ -197,7 +197,7 @@ router.patch("/admin/tracks/:id", authenticate, requireAdmin, async (req: AuthRe
       else {
         const cover = await getOwnedMedia(req.body.coverMediaId, req.user!.id, "image");
         if (!cover) {
-          res.status(400).json({ message: "封面必须是本人上传的 R2 图片" });
+          res.status(400).json({ message: "封面必须是本人上传的 S3 图片" });
           return;
         }
         updates.coverMediaId = cover.id;
@@ -208,7 +208,7 @@ router.patch("/admin/tracks/:id", authenticate, requireAdmin, async (req: AuthRe
       else {
         const lyricMedia = await getOwnedLyricMedia(req.body.lyricMediaId, req.user!.id);
         if (!lyricMedia) {
-          res.status(400).json({ message: "歌词文件必须是本人上传的 R2 歌词媒体" });
+          res.status(400).json({ message: "歌词文件必须是本人上传的 S3 歌词媒体" });
           return;
         }
         updates.lyricMediaId = lyricMedia.id;

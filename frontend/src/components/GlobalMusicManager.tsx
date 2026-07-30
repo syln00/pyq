@@ -30,7 +30,7 @@ function parseLyric(lrc: string): LyricLine[] | null {
   return parsed.length ? parsed.sort((a, b) => a.timeMs - b.timeMs) : null;
 }
 
-/** Owns the shared R2 audio element and site-wide static playlist state. */
+/** Owns the shared S3 audio element and site-wide static playlist state. */
 export default function GlobalMusicManager() {
   const initialized = useRef(false);
 
@@ -58,7 +58,7 @@ export default function GlobalMusicManager() {
         audio.load();
       } else if (previousUrl && new URL(previousUrl, window.location.href).href !== new URL(next.musicUrl, window.location.href).href) {
         audio.src = next.musicUrl;
-        if (wasPlaying) audio.play().catch(() => next.setAudioError(true, "R2 音频文件无法播放，请稍后重试。"));
+        if (wasPlaying) audio.play().catch(() => next.setAudioError(true, "S3 音频文件无法播放，请稍后重试。"));
         else audio.load();
       }
     }
@@ -132,7 +132,7 @@ export default function GlobalMusicManager() {
       const prepared = useMusicPlayer.getState().prepareTrack(index);
       if (!prepared) return false;
       audio.src = prepared.url;
-      if (shouldPlay) audio.play().catch(() => useMusicPlayer.getState().setAudioError(true, "R2 音频文件无法播放，请稍后重试。"));
+      if (shouldPlay) audio.play().catch(() => useMusicPlayer.getState().setAudioError(true, "S3 音频文件无法播放，请稍后重试。"));
       else audio.load();
       return true;
     };
@@ -150,7 +150,7 @@ export default function GlobalMusicManager() {
       state.setSwitching(false);
       state.setLoading(false);
       state.setPlaying(false);
-      state.setAudioError(true, "R2 音频文件无法播放，请确认文件未被删除。");
+      state.setAudioError(true, "S3 音频文件无法播放，请确认文件未被删除。");
     };
     const onWaiting = () => useMusicPlayer.getState().setLoading(true);
     const onPlaying = () => useMusicPlayer.getState().setLoading(false);

@@ -7,7 +7,7 @@ import { getGlobalAudio } from "@/lib/global-audio";
 import { useMusicPlayer } from "@/lib/music-player-store";
 
 /** Admin header player. It shares the global playlist resolver so it never assumes
- * R2 tracks contain durable browser-playable URLs. */
+ * S3 tracks use stable application media URLs. */
 export default function AdminMusicPlayer() {
   const activePostMusic = useMusicPlayer((s) => s.activePostMusic);
   const playlist = useMusicPlayer((s) => s.playlist);

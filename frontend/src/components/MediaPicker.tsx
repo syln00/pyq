@@ -190,7 +190,7 @@ export default function MediaPicker({
                     {/* 存储标识 */}
                     <span className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-black/60 px-1 py-0.5 text-[9px] text-white">
                       <Cloud className="h-2.5 w-2.5" />
-                      R2
+                      S3
                     </span>
                   </div>
                   {/* Info */}

@@ -1,7 +1,7 @@
 /**
  * 媒体库路由
  * 提供媒体文件的列表、上传、删除功能。
- * 上传通过受控 R2 直传完成，并自动登记到 Media 表。
+ * 上传通过受控 S3 直传完成，并自动登记到 Media 表。
  */
 import { Router, Request, Response } from "express";
 import path from "path";
