@@ -77,6 +77,8 @@ docker compose logs --tail=100 db-init minio-init backend frontend caddy
 
 `db-init` 和 `minio-init` 正常状态是执行成功后退出。其他五个长期服务应为 running/healthy。
 
+`minio-init` 还会确保 `staging/` 暂存对象按 `S3_STAGING_EXPIRY_DAYS` 自动过期，默认保留一天。上传成功确认后暂存对象会立即删除；该规则主要清理由于断网、关闭页面等原因未完成确认的上传。
+
 打开 `SITE_URL`，使用初始管理员登录。注册默认关闭，可在后台站点设置中开启。开启后新账号仍需管理员审核。
 
 如果升级前已经上传过媒体，可以选择运行一次哈希回填，让后续重复上传复用已有媒体。该命令只填写 SHA-256 并报告已有重复项，不会删除或合并文件：
@@ -148,6 +150,8 @@ S3_FORCE_PATH_STYLE=true
 ```
 
 `S3_ENDPOINT` 是后端可访问的地址；`S3_PRESIGN_ENDPOINT` 必须是用户浏览器可访问的地址。两者可以不同。
+
+切换到 R2 或 NAS S3 时，也应在对应存储服务中为 `staging/` 前缀配置生命周期过期规则。`S3_STAGING_EXPIRY_DAYS` 只由 Compose 内置的 MinIO 初始化服务自动应用，不会替你修改外部 Bucket。
 
 复制对象并验证后，只需修改这组变量并重启：
 

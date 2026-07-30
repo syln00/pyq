@@ -74,6 +74,7 @@ S3_SECRET_ACCESS_KEY=replace-with-the-same-minio-password
 S3_BUCKET=pyq-media
 S3_FORCE_PATH_STYLE=true
 S3_SIGNED_GET_TTL_SECONDS=300
+S3_STAGING_EXPIRY_DAYS=1
 
 JWT_SECRET=replace-with-at-least-32-random-characters
 JWT_EXPIRES_IN=7d
@@ -120,6 +121,8 @@ docker compose logs --tail=100 db-init minio-init backend frontend caddy
 ```
 
 `db-init` 和 `minio-init` 正常情况下会执行成功后退出；MySQL、MinIO、后端、前端和 Caddy 应保持 running/healthy。Caddy 会在域名解析和 80/443 可访问后自动申请 HTTPS 证书。
+
+内置 MinIO 会自动清理超过 `S3_STAGING_EXPIRY_DAYS` 的 `staging/` 中断上传，默认保留一天。
 
 ### 5. 首次登录
 
