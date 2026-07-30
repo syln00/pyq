@@ -13,6 +13,42 @@ interface LocationPickerProps {
   initial?: PostLocation | null;
 }
 
+/** 高德部分空字段会返回 []；组件状态始终只接收规范化后的字符串和坐标。 */
+function locationText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = locationText(item);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function locationCoordinate(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  const text = locationText(value).trim();
+  if (!text) return undefined;
+  const coordinate = Number(text);
+  return Number.isFinite(coordinate) ? coordinate : undefined;
+}
+
+function normalizeLocation(value: unknown): PostLocation | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const location = value as Record<string, unknown>;
+  return {
+    name: locationText(location.name),
+    city: locationText(location.city),
+    province: locationText(location.province),
+    address: locationText(location.address),
+    lng: locationCoordinate(location.lng),
+    lat: locationCoordinate(location.lat),
+  };
+}
+
 // 全局 amap 加载状态：避免重复加载
 let amapLoaderPromise: Promise<void> | null = null;
 
@@ -57,6 +93,7 @@ export default function LocationPicker({
   onClose,
   initial,
 }: LocationPickerProps) {
+  const initialLocation = normalizeLocation(initial);
   const { closing, handleClose } = useExitAnimation(onClose, 200);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -82,16 +119,16 @@ export default function LocationPicker({
   const [locationAttempted, setLocationAttempted] = useState(false);
 
   // 当前位置状态
-  const [customName, setCustomName] = useState(initial?.name || "");
-  const [currentCity, setCurrentCity] = useState(initial?.city || "");
-  const [currentProvince, setCurrentProvince] = useState(initial?.province || "");
-  const [currentAddress, setCurrentAddress] = useState(initial?.address || "");
+  const [customName, setCustomName] = useState(initialLocation?.name || "");
+  const [currentCity, setCurrentCity] = useState(initialLocation?.city || "");
+  const [currentProvince, setCurrentProvince] = useState(initialLocation?.province || "");
+  const [currentAddress, setCurrentAddress] = useState(initialLocation?.address || "");
   const [currentLatLng, setCurrentLatLng] = useState<{
     lng: number;
     lat: number;
   } | null>(
-    initial?.lng && initial?.lat
-      ? { lng: initial.lng, lat: initial.lat }
+    initialLocation?.lng !== undefined && initialLocation?.lat !== undefined
+      ? { lng: initialLocation.lng, lat: initialLocation.lat }
       : null
   );
 
@@ -103,7 +140,9 @@ export default function LocationPicker({
       try {
         const res = await apiFetch("/location/key");
         if (!res.ok) throw new Error("无法获取地图配置");
-        const { amapJsKey, amapSecurityJsCode } = await res.json();
+        const keyData = await res.json();
+        const amapJsKey = locationText(keyData?.amapJsKey);
+        const amapSecurityJsCode = locationText(keyData?.amapSecurityJsCode);
         if (!amapJsKey) {
           throw new Error("未配置高德地图 JS API Key，请在后台设置中配置");
         }
@@ -112,8 +151,8 @@ export default function LocationPicker({
 
         const AMap = (window as any).AMap;
         const center: [number, number] =
-          initial?.lng && initial?.lat
-            ? [initial.lng, initial.lat]
+          initialLocation?.lng !== undefined && initialLocation?.lat !== undefined
+            ? [initialLocation.lng, initialLocation.lat]
             : [114.305469, 30.592849]; // 默认武汉
 
         const map = new AMap.Map(mapContainerRef.current, {
@@ -148,7 +187,7 @@ export default function LocationPicker({
         // 初始化数据：无论有无初始值都用当前中心做逆地理
         reverseGeocode(center[0], center[1]);
         // 无初始值时尝试 GPS 定位
-        if (!initial?.lng || !initial?.lat) {
+        if (initialLocation?.lng === undefined || initialLocation?.lat === undefined) {
           tryLocate();
         }
       } catch (e: any) {
@@ -197,17 +236,25 @@ export default function LocationPicker({
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "逆地理编码失败");
 
-      setCurrentCity(data.city || "");
-      setCurrentProvince(data.province || "");
-      setCurrentAddress(data.formattedAddress || "");
-      setNearbyPois(data.pois || []);
+      const city = locationText(data?.city);
+      const province = locationText(data?.province);
+      const formattedAddress = locationText(data?.formattedAddress);
+      const pois = Array.isArray(data?.pois)
+        ? data.pois
+            .map(normalizeLocation)
+            .filter((poi: PostLocation | null): poi is PostLocation => Boolean(poi?.name))
+        : [];
+      setCurrentCity(city);
+      setCurrentProvince(province);
+      setCurrentAddress(formattedAddress);
+      setNearbyPois(pois);
 
       // 用户未手动编辑过 → 自动填充名称为第一个 POI 或格式化地址
       if (!userEditedRef.current) {
-        if (data.pois?.[0]?.name) {
-          setCustomName(data.pois[0].name);
-        } else if (data.formattedAddress) {
-          setCustomName(data.formattedAddress);
+        if (pois[0]?.name) {
+          setCustomName(pois[0].name);
+        } else if (formattedAddress) {
+          setCustomName(formattedAddress);
         }
       }
     } catch (e: any) {
@@ -328,18 +375,22 @@ export default function LocationPicker({
         const res = await apiFetch("/location/ip");
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "IP 定位失败");
-        if (data.lng && data.lat) {
-          if (data.city) {
-            setCurrentCity(data.city);
-            setCustomName((prev) => prev || data.city);
+        const lng = locationCoordinate(data?.lng);
+        const lat = locationCoordinate(data?.lat);
+        const city = locationText(data?.city);
+        const province = locationText(data?.province);
+        if (lng !== undefined && lat !== undefined) {
+          if (city) {
+            setCurrentCity(city);
+            setCustomName((prev) => prev || city);
           }
-          if (data.province) {
-            setCurrentProvince(data.province);
+          if (province) {
+            setCurrentProvince(province);
           }
           return {
-            lng: data.lng,
-            lat: data.lat,
-            accuracy: data.accuracy || 5000,
+            lng,
+            lat,
+            accuracy: locationCoordinate(data?.accuracy) || 5000,
             type: "ip",
           };
         }
@@ -404,7 +455,13 @@ export default function LocationPicker({
         `/location/search?keywords=${encodeURIComponent(kw)}`
       );
       const data = await res.json();
-      setSearchResults(data || []);
+      if (!res.ok) throw new Error(locationText(data?.message) || "搜索地点失败");
+      const results = Array.isArray(data)
+        ? data
+            .map(normalizeLocation)
+            .filter((poi: PostLocation | null): poi is PostLocation => Boolean(poi?.name))
+        : [];
+      setSearchResults(results);
     } catch {
       setSearchResults([]);
     } finally {
@@ -421,10 +478,10 @@ export default function LocationPicker({
     }
     // 标记为用户已选择，覆盖名称
     userEditedRef.current = false;
-    setCustomName(poi.name);
-    setCurrentCity(poi.city || "");
-    setCurrentProvince(poi.province || "");
-    setCurrentAddress(poi.address || "");
+    setCustomName(locationText(poi.name));
+    setCurrentCity(locationText(poi.city));
+    setCurrentProvince(locationText(poi.province));
+    setCurrentAddress(locationText(poi.address));
     setKeyword("");
     setSearchResults([]);
     // 触发附近列表更新
@@ -441,7 +498,7 @@ export default function LocationPicker({
       setCurrentLatLng({ lng: poi.lng, lat: poi.lat });
     }
     userEditedRef.current = false;
-    setCustomName(poi.name);
+    setCustomName(locationText(poi.name));
     // 重新获取该点附近列表
     if (poi.lng && poi.lat) {
       reverseGeocode(poi.lng, poi.lat);

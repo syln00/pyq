@@ -4,9 +4,22 @@ import { authenticate, requirePublisher, AuthRequest } from "../middleware/auth"
 
 const router = Router();
 
+/** 高德部分空字段会返回 []，统一收敛为可安全使用的文本。 */
+function amapText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = amapText(item);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
 /** 将高德 API 错误码翻译为用户可操作的中文提示 */
 function amapErrorMessage(data: any): string {
-  const infocode = String(data.infocode || "");
+  const infocode = amapText(data?.infocode);
   switch (infocode) {
     case "10003":
     case "10005":
@@ -20,7 +33,7 @@ function amapErrorMessage(data: any): string {
     case "10004":
       return "USERKEY_NO_PERMISSION：该 Key 无此服务权限，请检查高德控制台是否开通对应服务";
     default:
-      return data.info || "高德地图服务异常";
+      return amapText(data?.info) || "高德地图服务异常";
   }
 }
 
@@ -38,8 +51,8 @@ router.get(
   async (_req: AuthRequest, res: Response) => {
     const setting = await SiteSetting.findByPk(1);
     res.json({
-      amapJsKey: setting?.amapJsKey || "",
-      amapSecurityJsCode: setting?.amapSecurityJsCode || "",
+      amapJsKey: amapText(setting?.amapJsKey),
+      amapSecurityJsCode: amapText(setting?.amapSecurityJsCode),
     });
   }
 );
@@ -61,7 +74,7 @@ router.get(
       return;
     }
     const setting = await SiteSetting.findByPk(1);
-    const amapKey = setting?.amapKey || "";
+    const amapKey = amapText(setting?.amapKey);
     if (!amapKey) {
       res.status(500).json({ message: "未配置高德地图 Web服务 Key，请在后台设置中配置" });
       return;
@@ -89,16 +102,16 @@ router.get(
       const addrComp = regeo.addressComponent || {};
       const pois = Array.isArray(regeo.pois) ? regeo.pois : [];
       res.json({
-        formattedAddress: regeo.formatted_address || "",
-        city: String(addrComp.city || addrComp.province || ""),
-        province: String(addrComp.province || ""),
-        district: String(addrComp.district || ""),
-        address: String(addrComp.township || addrComp.neighborhood?.name || ""),
+        formattedAddress: amapText(regeo.formatted_address),
+        city: amapText(addrComp.city) || amapText(addrComp.province),
+        province: amapText(addrComp.province),
+        district: amapText(addrComp.district),
+        address: amapText(addrComp.township) || amapText(addrComp.neighborhood?.name),
         pois: pois.slice(0, 20).map((poi: any) => {
-          const [lngStr, latStr] = String(poi.location || ",").split(",");
+          const [lngStr, latStr] = amapText(poi.location).split(",");
           return {
-            name: poi.name || "",
-            address: poi.address || "",
+            name: amapText(poi.name),
+            address: amapText(poi.address),
             lng: lngStr ? parseFloat(lngStr) : undefined,
             lat: latStr ? parseFloat(latStr) : undefined,
           };
@@ -123,7 +136,7 @@ router.get("/search", authenticate, requirePublisher, async (req: Request, res: 
   }
 
   const setting = await SiteSetting.findByPk(1);
-  const amapKey = setting?.amapKey || "";
+  const amapKey = amapText(setting?.amapKey);
   if (!amapKey) {
     res.status(500).json({ message: "未配置高德地图 Key，请在后台设置中配置" });
     return;
@@ -153,11 +166,11 @@ router.get("/search", authenticate, requirePublisher, async (req: Request, res: 
     const pois = Array.isArray(data.pois) ? data.pois : [];
     res.json(
       pois.map((poi: any) => {
-        const [lngStr, latStr] = String(poi.location || ",").split(",");
+        const [lngStr, latStr] = amapText(poi.location).split(",");
         return {
-          name: poi.name || "",
-          city: poi.cityname || poi.adname || "",
-          address: poi.address || "",
+          name: amapText(poi.name),
+          city: amapText(poi.cityname) || amapText(poi.adname),
+          address: amapText(poi.address),
           lng: lngStr ? parseFloat(lngStr) : undefined,
           lat: latStr ? parseFloat(latStr) : undefined,
         };
@@ -180,7 +193,7 @@ router.get(
   requirePublisher,
   async (req: AuthRequest, res: Response) => {
     const setting = await SiteSetting.findByPk(1);
-    const amapKey = setting?.amapKey || "";
+    const amapKey = amapText(setting?.amapKey);
     if (!amapKey) {
       res.status(500).json({ message: "未配置高德地图 Web服务 Key，请在后台设置中配置" });
       return;
@@ -206,7 +219,7 @@ router.get(
         return;
       }
       // rectangle 格式: "lng1,lat1;lng2,lat2" — 取中心点
-      const rect = String(data.rectangle || "");
+      const rect = amapText(data.rectangle);
       let lng: number | undefined;
       let lat: number | undefined;
       if (rect) {
@@ -221,9 +234,9 @@ router.get(
       res.json({
         lng,
         lat,
-        province: String(data.province || ""),
-        city: String(data.city || ""),
-        adcode: String(data.adcode || ""),
+        province: amapText(data.province),
+        city: amapText(data.city),
+        adcode: amapText(data.adcode),
         locationType: "ip",
         accuracy: 5000, // IP 定位精度约 5 公里
       });
