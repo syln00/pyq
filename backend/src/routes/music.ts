@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { Op } from "sequelize";
 import { Media, MusicPlaylist, MusicTrack, SiteSetting, sequelize, siteSettingTextDefaults } from "../models";
 import { authenticate, requireAdmin, AuthRequest } from "../middleware/auth";
+import { mediaContentPath } from "../services/storage-service";
 
 const router = Router();
 const DEFAULT_PLAYLIST_SLUG = "site-default";
@@ -26,9 +27,9 @@ function serializeTrack(track: MusicTrack & { audio?: Media; cover?: Media; lyri
     name: track.title,
     title: track.title,
     artist: track.artist,
-    mp3url: audio?.url || "",
-    audioUrl: audio?.url || "",
-    cover: cover?.url || "",
+    mp3url: audio ? mediaContentPath(audio.id) : "",
+    audioUrl: audio ? mediaContentPath(audio.id) : "",
+    cover: cover ? mediaContentPath(cover.id) : "",
     lrc: track.lrc,
     lyric: track.lrc,
     sortOrder: track.sortOrder,
@@ -51,14 +52,14 @@ async function loadDefaultPlaylist() {
 
 async function getOwnedMedia(id: unknown, userId: string, category: "audio" | "image") {
   if (typeof id !== "string") return null;
-  const media = await Media.findOne({ where: { id, uploaderId: userId, storageType: "r2" } });
+  const media = await Media.findOne({ where: { id, uploaderId: userId } });
   if (!media || !media.mimeType.startsWith(`${category}/`)) return null;
   return media;
 }
 
 async function getOwnedLyricMedia(id: unknown, userId: string) {
   if (typeof id !== "string") return null;
-  return Media.findOne({ where: { id, uploaderId: userId, storageType: "r2", kind: "lyric" } });
+  return Media.findOne({ where: { id, uploaderId: userId, kind: "lyric" } });
 }
 
 function readText(value: unknown, field: string, maxLength: number, required = false) {
@@ -160,6 +161,10 @@ router.post("/admin/tracks", authenticate, requireAdmin, async (req: AuthRequest
       lrc,
       sortOrder: Number.isFinite(maxOrder) ? Number(maxOrder) + 1 : 0,
     });
+    await Media.update(
+      { accessClass: "public_asset" },
+      { where: { id: { [Op.in]: [audio.id, cover?.id, lyricMedia?.id].filter(Boolean) as string[] } } }
+    );
     const full = await MusicTrack.findByPk(track.id, {
       include: [{ model: Media, as: "audio" }, { model: Media, as: "cover", required: false }, { model: Media, as: "lyricMedia", required: false }],
     });
@@ -216,6 +221,10 @@ router.patch("/admin/tracks/:id", authenticate, requireAdmin, async (req: AuthRe
     if (artist !== undefined) updates.artist = artist;
     if (lrc !== undefined) updates.lrc = lrc;
     await track.update(updates);
+    await Media.update(
+      { accessClass: "public_asset" },
+      { where: { id: { [Op.in]: [track.audioMediaId, track.coverMediaId, track.lyricMediaId].filter(Boolean) as string[] } } }
+    );
     const full = await MusicTrack.findByPk(track.id, {
       include: [{ model: Media, as: "audio" }, { model: Media, as: "cover", required: false }, { model: Media, as: "lyricMedia", required: false }],
     });

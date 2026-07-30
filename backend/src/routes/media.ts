@@ -7,18 +7,21 @@ import { Router, Request, Response } from "express";
 import path from "path";
 import { Op } from "sequelize";
 import { param, validationResult } from "express-validator";
-import { CatalogItem, Media, MusicTrack, Post, UploadIntent, User, getMediaCategory, type MediaKind } from "../models";
-import { authenticate, requireAdmin, AuthRequest } from "../middleware/auth";
-import { deleteStoredFile, isR2Ready } from "../services/storage-service";
+import { v4 as uuidv4 } from "uuid";
+import { CatalogItem, Media, MusicTrack, Post, PostMedia, UploadIntent, User, getMediaCategory, type MediaKind } from "../models";
+import { authenticate, authenticateOptional, requirePublisher, AuthRequest } from "../middleware/auth";
+import { deleteStoredFile, isS3Ready, mediaContentPath } from "../services/storage-service";
 import {
   buildObjectKey,
   buildStagingKey,
   createPresignedUploadForKey,
-  downloadFromR2,
-  extractR2Key,
-  promoteR2Object,
-  statR2Object,
-} from "../services/r2-service";
+  createPresignedDownload,
+  downloadObject,
+  extractObjectKey,
+  promoteObject,
+  statObject,
+} from "../services/s3-service";
+import { canViewPost } from "../services/post-access-service";
 
 const router = Router();
 
@@ -79,7 +82,7 @@ function formatMedia(media: any) {
   return {
     id: media.id,
     filename: media.filename,
-    url: media.url,
+    url: mediaContentPath(media.id),
     storageType: media.storageType,
     mimeType: media.mimeType,
     size: Number(media.size),
@@ -93,11 +96,11 @@ function formatMedia(media: any) {
   };
 }
 
-// GET /api/media — 媒体列表（分页 + 类型筛选）
+// GET /api/media — 管理员查看全部，普通发布者仅查看自己的媒体
 router.get(
   "/",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   async (req: AuthRequest, res: Response) => {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 24));
@@ -105,7 +108,7 @@ router.get(
     const category = req.query.category as string | undefined;
     const kind = req.query.kind as string | undefined;
 
-    const where: any = {};
+    const where: any = req.user!.role === "admin" ? {} : { uploaderId: req.user!.id };
     if (kind && ["image", "video", "audio", "lyric", "file"].includes(kind)) {
       where.kind = kind;
     }
@@ -160,12 +163,12 @@ router.get(
   }
 );
 
-// POST /api/media/presign — 创建受控的 R2 暂存上传（仅管理员）
+// POST /api/media/presign — 创建受控的 S3 暂存上传
 // body: { filename: string, mimeType: string, kind: "image"|"video"|"audio"|"file" }
-router.post("/presign", authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post("/presign", authenticate, requirePublisher, async (req: AuthRequest, res: Response) => {
   const { filename, mimeType, kind } = req.body || {};
-  if (!isR2Ready()) {
-    res.status(400).json({ message: "R2 存储未配置" });
+  if (!isS3Ready()) {
+    res.status(400).json({ message: "S3 存储未配置" });
     return;
   }
 
@@ -193,7 +196,7 @@ router.post("/presign", authenticate, requireAdmin, async (req: AuthRequest, res
 
 // POST /api/media/confirm — 验证暂存对象、提升到公开路径并登记媒体库
 // body: { intentId: string }
-router.post("/confirm", authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest, res: Response) => {
   const { intentId } = req.body || {};
   if (typeof intentId !== "string") {
     res.status(400).json({ message: "缺少 intentId 参数" });
@@ -216,7 +219,7 @@ router.post("/confirm", authenticate, requireAdmin, async (req: AuthRequest, res
       return;
     }
 
-    const object = await statR2Object(intent.stagingKey);
+    const object = await statObject(intent.stagingKey);
     if (!object || object.size <= 0) {
       res.status(400).json({ message: "未找到已上传的文件，请重新上传" });
       return;
@@ -226,11 +229,16 @@ router.post("/confirm", authenticate, requireAdmin, async (req: AuthRequest, res
       return;
     }
 
-    const url = await promoteR2Object(intent.stagingKey, intent.finalKey, intent.mimeType);
+    const objectKey = await promoteObject(intent.stagingKey, intent.finalKey, intent.mimeType);
+    const mediaId = uuidv4();
+    const url = mediaContentPath(mediaId);
     const media = await Media.create({
+      id: mediaId,
       filename: intent.filename,
       url,
-      storageType: "r2",
+      objectKey,
+      storageType: "s3",
+      accessClass: "owner_only",
       mimeType: intent.mimeType,
       kind: intent.kind,
       size: object.size,
@@ -246,11 +254,56 @@ router.post("/confirm", authenticate, requireAdmin, async (req: AuthRequest, res
   }
 });
 
+async function mayReadMedia(media: Media, req: AuthRequest) {
+  if (req.user?.role === "admin" || req.user?.id === media.uploaderId) return true;
+  if (media.accessClass === "public_asset") return true;
+  if (media.accessClass !== "post_bound") return false;
+  const links = await PostMedia.findAll({ where: { mediaId: media.id }, attributes: ["postId"] });
+  if (!links.length) return false;
+  const posts = await Post.findAll({ where: { id: { [Op.in]: links.map((link) => link.postId) } } });
+  for (const post of posts) {
+    if (await canViewPost(post, req.user)) return true;
+  }
+  return false;
+}
+
+// GET /api/media/:id/content — 鉴权后跳转到短时签名 URL；Range 请求由 S3 处理。
+router.get(
+  "/:id/content",
+  authenticateOptional,
+  [param("id").isUUID()],
+  async (req: AuthRequest, res: Response) => {
+    if (!validationResult(req).isEmpty()) {
+      res.status(404).json({ message: "媒体不存在" });
+      return;
+    }
+    const media = await Media.findByPk(String(req.params.id));
+    if (!media || !(await mayReadMedia(media, req))) {
+      res.status(404).json({ message: "媒体不存在" });
+      return;
+    }
+    const objectKey = media.objectKey || extractObjectKey(media.url);
+    if (!objectKey) {
+      res.status(404).json({ message: "媒体对象不存在" });
+      return;
+    }
+    try {
+      const signedUrl = await createPresignedDownload(objectKey, media.mimeType);
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Accept-Ranges", "bytes");
+      res.redirect(302, signedUrl);
+    } catch (error) {
+      console.error("[media] create signed download failed:", error);
+      res.status(502).json({ message: "媒体暂时无法读取" });
+    }
+  }
+);
+
 // GET /api/media/:id/text — 读取本人上传的小型歌词文件，不代理音频。
 router.get(
   "/:id/text",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   [param("id").isUUID()],
   async (req: AuthRequest, res: Response) => {
     const errors = validationResult(req);
@@ -258,10 +311,9 @@ router.get(
       res.status(400).json({ errors: errors.array() });
       return;
     }
-    const media = await Media.findOne({
-      where: { id: String(req.params.id), uploaderId: req.user!.id, storageType: "r2", kind: "lyric" },
-    });
-    if (!media) {
+    const media = await Media.findByPk(String(req.params.id));
+    const ownsMedia = media && (req.user!.role === "admin" || media.uploaderId === req.user!.id);
+    if (!ownsMedia || media.kind !== "lyric") {
       res.status(404).json({ message: "歌词文件不存在" });
       return;
     }
@@ -270,9 +322,9 @@ router.get(
       return;
     }
     try {
-      const key = extractR2Key(media.url);
-      if (!key) throw new Error("无法识别 R2 文件地址");
-      const buffer = await downloadFromR2(key, DIRECT_UPLOAD_RULES.lyric.maxSize);
+      const key = media.objectKey || extractObjectKey(media.url);
+      if (!key) throw new Error("无法识别 S3 对象");
+      const buffer = await downloadObject(key, DIRECT_UPLOAD_RULES.lyric.maxSize);
       res.json({ id: media.id, filename: media.filename, text: buffer.toString("utf8") });
     } catch (error: any) {
       res.status(502).json({ message: error.message || "读取歌词文件失败" });
@@ -282,7 +334,7 @@ router.get(
 
 // POST /api/media/live-photo — 将同一管理员上传的图片和视频登记为实况图配对
 // body: { imageMediaId: string, videoMediaId: string }
-router.post("/live-photo", authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post("/live-photo", authenticate, requirePublisher, async (req: AuthRequest, res: Response) => {
   const { imageMediaId, videoMediaId } = req.body || {};
   if (typeof imageMediaId !== "string" || typeof videoMediaId !== "string") {
     res.status(400).json({ message: "缺少图片或视频媒体 ID" });
@@ -290,8 +342,8 @@ router.post("/live-photo", authenticate, requireAdmin, async (req: AuthRequest, 
   }
 
   const [image, video] = await Promise.all([
-    Media.findOne({ where: { id: imageMediaId, uploaderId: req.user!.id } }),
-    Media.findOne({ where: { id: videoMediaId, uploaderId: req.user!.id } }),
+    Media.findOne({ where: { id: imageMediaId, ...(req.user!.role === "admin" ? {} : { uploaderId: req.user!.id }) } }),
+    Media.findOne({ where: { id: videoMediaId, ...(req.user!.role === "admin" ? {} : { uploaderId: req.user!.id }) } }),
   ]);
   if (!image || !video || !image.mimeType.startsWith("image/") || !video.mimeType.startsWith("video/")) {
     res.status(400).json({ message: "实况图配对必须使用本人上传的图片和视频" });
@@ -309,7 +361,7 @@ router.post("/live-photo", authenticate, requireAdmin, async (req: AuthRequest, 
 router.delete(
   "/:id",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   [param("id").isUUID()],
   async (req: AuthRequest, res: Response) => {
     const errors = validationResult(req);
@@ -321,6 +373,16 @@ router.delete(
     const media = await Media.findByPk(req.params.id as string);
     if (!media) {
       res.status(404).json({ message: "媒体文件不存在" });
+      return;
+    }
+    if (req.user!.role !== "admin" && media.uploaderId !== req.user!.id) {
+      res.status(404).json({ message: "媒体文件不存在" });
+      return;
+    }
+
+    const postMediaReference = await PostMedia.findOne({ where: { mediaId: media.id }, attributes: ["postId"] });
+    if (postMediaReference) {
+      res.status(409).json({ message: "该媒体正在被动态或文章引用，请先解除关联" });
       return;
     }
 
@@ -357,11 +419,11 @@ router.delete(
       return;
     }
 
-    // 删除 R2 对象失败不阻塞记录删除
+    // 删除 S3 对象失败不阻塞记录删除
     try {
-      await deleteStoredFile(media.url, "r2");
+      await deleteStoredFile(media);
     } catch {
-      console.log(`[media] 远端文件删除失败: ${media.url}`);
+      console.log(`[media] S3 对象删除失败: ${media.objectKey || media.url}`);
     }
 
     await media.destroy();

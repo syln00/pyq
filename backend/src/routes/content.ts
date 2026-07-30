@@ -18,6 +18,7 @@ import { checkCommentRate, recordCommentSuccess, resetViolations } from "../midd
 import { blacklistService } from "../services/blacklist-service";
 import { triggerRevalidate } from "../utils/revalidate";
 import type { CatalogCollection } from "../models/CatalogCategory";
+import { mediaContentPath } from "../services/storage-service";
 
 const router = Router();
 const COLLECTIONS = new Set<CatalogCollection>(["equipment", "labs"]);
@@ -229,7 +230,7 @@ function formatCatalog(categories: any[]) {
         configuration: item.configuration,
         description: item.description,
         imageMediaId: item.imageMediaId,
-        imageUrl: item.imageMedia?.url || item.imageUrl || "",
+        imageUrl: item.imageMedia ? mediaContentPath(item.imageMedia.id) : item.imageUrl || "",
         linkUrl: item.linkUrl || "",
         sortOrder: item.sortOrder,
       })),
@@ -329,8 +330,8 @@ async function validateExternalUrl(value: unknown, label: string, maxLength: num
 async function validateImageMedia(id: unknown, userId: string) {
   if (id == null || id === "") return null;
   if (typeof id !== "string") throw new Error("图片无效");
-  const media = await Media.findOne({ where: { id, uploaderId: userId, storageType: "r2" } });
-  if (!media || !media.mimeType.startsWith("image/")) throw new Error("图片必须是本人上传的 R2 图片");
+  const media = await Media.findOne({ where: { id, uploaderId: userId } });
+  if (!media || !media.mimeType.startsWith("image/")) throw new Error("图片必须是本人上传的 S3 图片");
   return media.id;
 }
 
@@ -363,6 +364,7 @@ router.post(
       const linkUrl = collection === "labs" ? await validateExternalUrl(req.body.linkUrl, "项目链接", 2048) : "";
       const sortOrder = await CatalogItem.count({ where: { categoryId: category.id } });
       const item = await CatalogItem.create({ categoryId: category.id, title: req.body.title, configuration: req.body.configuration || "", description: req.body.description || "", imageMediaId, imageUrl, linkUrl, sortOrder });
+      if (imageMediaId) await Media.update({ accessClass: "public_asset" }, { where: { id: imageMediaId } });
       void triggerRevalidate();
       res.status(201).json(item);
     } catch (error) {
@@ -406,6 +408,7 @@ router.put(
         ? ("linkUrl" in req.body ? await validateExternalUrl(req.body.linkUrl, "项目链接", 2048) : item.linkUrl)
         : "";
       await item.update({ ...("title" in req.body ? { title: req.body.title } : {}), ...("configuration" in req.body ? { configuration: req.body.configuration } : {}), ...("description" in req.body ? { description: req.body.description } : {}), imageMediaId, imageUrl, linkUrl, ...("sortOrder" in req.body ? { sortOrder: req.body.sortOrder } : {}) });
+      if (imageMediaId) await Media.update({ accessClass: "public_asset" }, { where: { id: imageMediaId } });
       void triggerRevalidate();
       res.json(item);
     } catch (error) {

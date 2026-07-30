@@ -23,6 +23,7 @@ import {
   validateSelectedUsers,
   type PostVisibility,
 } from "../services/post-access-service";
+import { mediaContentPath } from "../services/storage-service";
 
 const router = Router();
 
@@ -133,29 +134,51 @@ function normalizeMusicPayload(value: unknown) {
   if (typeof value !== "object" || Array.isArray(value)) throw new Error("音乐信息格式无效");
   const music = value as Record<string, unknown>;
   if (music.source !== "upload" || typeof music.url !== "string" || !music.url) {
-    throw new Error("音乐仅支持已上传到 R2 的音频文件");
+    throw new Error("音乐仅支持已上传到 S3 的音频文件");
   }
   return music;
 }
 
-async function validateR2MusicPayload(value: unknown, userId: string) {
+function managedMediaId(value: unknown) {
+  if (typeof value !== "string") return null;
+  return value.match(/\/api\/media\/([0-9a-f-]{36})\/content(?:[?#]|$)/i)?.[1] || null;
+}
+
+async function validateS3MusicPayload(value: unknown, userId: string) {
   const music = normalizeMusicPayload(value);
-  if (!music) return null;
+  if (!music) return { value: null, mediaIds: [] as string[] };
   const url = music.url;
   if (typeof url !== "string") throw new Error("音乐地址格式无效");
-  const audio = await Media.findOne({ where: { url, uploaderId: userId, storageType: { [Op.in]: ["r2", "s3"] } } });
+  const audioId = managedMediaId(url);
+  const audio = audioId ? await Media.findOne({ where: { id: audioId, uploaderId: userId } }) : null;
   if (!audio || !audio.mimeType.startsWith("audio/")) {
-    throw new Error("音乐必须引用本人上传的 R2 音频文件");
+    throw new Error("音乐必须引用本人上传的 S3 音频文件");
   }
+  const mediaIds = [audio.id];
+  let coverUrl = "";
   if (music.cover) {
     if (typeof music.cover !== "string") throw new Error("音乐封面格式无效");
-    const cover = await Media.findOne({ where: { url: music.cover, uploaderId: userId, storageType: { [Op.in]: ["r2", "s3"] } } });
-    if (!cover || !cover.mimeType.startsWith("image/")) throw new Error("音乐封面必须引用本人上传的 R2 图片");
+    const coverId = managedMediaId(music.cover);
+    const cover = coverId ? await Media.findOne({ where: { id: coverId, uploaderId: userId } }) : null;
+    if (!cover || !cover.mimeType.startsWith("image/")) throw new Error("音乐封面必须引用本人上传的 S3 图片");
+    mediaIds.push(cover.id);
+    coverUrl = mediaContentPath(cover.id);
   }
   const name = typeof music.name === "string" ? music.name.trim().slice(0, 255) : "";
   const artist = typeof music.artist === "string" ? music.artist.trim().slice(0, 255) : "";
   const lrc = typeof music.lrc === "string" ? music.lrc.slice(0, 100_000) : undefined;
-  return { name: name || audio.filename.replace(/\.[^.]+$/, ""), artist, cover: typeof music.cover === "string" ? music.cover : "", url: audio.url, source: "upload" as const, ...(lrc ? { lrc } : {}), ...(typeof music.autoplay === "boolean" ? { autoplay: music.autoplay } : {}) };
+  return {
+    value: {
+      name: name || audio.filename.replace(/\.[^.]+$/, ""),
+      artist,
+      cover: coverUrl,
+      url: mediaContentPath(audio.id),
+      source: "upload" as const,
+      ...(lrc ? { lrc } : {}),
+      ...(typeof music.autoplay === "boolean" ? { autoplay: music.autoplay } : {}),
+    },
+    mediaIds,
+  };
 }
 
 function formatPost(
@@ -164,7 +187,7 @@ function formatPost(
   commentLikesMap?: Map<string, { likeCount: number; meLiked: boolean }>,
   viewer?: AuthRequest["user"]
 ) {
-  // 静态 R2 音频直接返回，无需解析外部音源。
+  // 受管 S3 音频使用稳定应用地址，无需解析外部音源。
   const music = post.music || null;
   let linkCard = post.linkCard;
   if (typeof linkCard === "string") {
@@ -553,7 +576,7 @@ router.post(
       res.status(400).json({ message: "指定用户可见时至少选择一个用户" });
       return;
     }
-    const approvedMediaIds = await validateMediaIds(mediaIds, req.user!.id, req.user!.role === "admin");
+    const requestedMediaIds = await validateMediaIds(mediaIds, req.user!.id, req.user!.role === "admin");
     const externalMedia = hasExternalMedia({ images, cover, music, linkCard, video, douban, content });
     if (visibility !== "public" && externalMedia && req.body.acknowledgeExternalMediaRisk !== true) {
       res.status(400).json({
@@ -563,7 +586,9 @@ router.post(
       return;
     }
 
-    const normalizedMusic = await validateR2MusicPayload(music, req.user!.id);
+    const normalizedMusicResult = await validateS3MusicPayload(music, req.user!.id);
+    const normalizedMusic = normalizedMusicResult.value;
+    const approvedMediaIds = [...new Set([...requestedMediaIds, ...normalizedMusicResult.mediaIds])];
 
     const isAdmin = req.user!.role === "admin";
     const finalIsAd = isAdmin ? isAd : false;
@@ -694,9 +719,10 @@ router.put(
       return;
     }
 
-    const normalizedMusic = req.body.music !== undefined
-      ? await validateR2MusicPayload(req.body.music, req.user!.id)
-      : post.music;
+    const normalizedMusicResult = req.body.music !== undefined
+      ? await validateS3MusicPayload(req.body.music, req.user!.id)
+      : { value: post.music, mediaIds: [] as string[] };
+    const normalizedMusic = normalizedMusicResult.value;
 
     const isAdmin = req.user!.role === "admin";
     const finalIsAd = isAdmin && req.body.isAd !== undefined ? req.body.isAd : post.isAd;
@@ -723,9 +749,10 @@ router.put(
       return;
     }
     const currentMediaIds = ((post as any).mediaItems || []).map((m: any) => m.id);
-    const approvedMediaIds = req.body.mediaIds !== undefined
+    const requestedMediaIds = req.body.mediaIds !== undefined
       ? await validateMediaIds(req.body.mediaIds, post.userId, isAdmin)
       : currentMediaIds;
+    const approvedMediaIds = [...new Set([...requestedMediaIds, ...normalizedMusicResult.mediaIds])];
     const finalPayload = {
       content: req.body.content !== undefined ? req.body.content : post.content,
       images: req.body.images !== undefined ? req.body.images : post.images,

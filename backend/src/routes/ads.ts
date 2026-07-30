@@ -7,6 +7,7 @@ import { getClientIp } from "../utils/ip";
 import { buildIdentity } from "./posts";
 import { triggerRevalidate } from "../utils/revalidate";
 import { generateShortId } from "../utils/short-id";
+import { markManagedMediaPublic } from "../services/storage-service";
 
 const router = Router();
 
@@ -42,6 +43,7 @@ function formatAd(post: any, meLiked = false) {
     likesDisabled: !!post.likesDisabled,
     commentsDisabled: !!post.commentsDisabled,
     createdAt: post.createdAt,
+    publishedAt: post.publishedAt,
     author: post.author,
     comments: post.comments?.map((c: any) => ({
       id: c.id,
@@ -70,9 +72,9 @@ const adIncludes: any[] = [
 // 加 meLiked 预查询（修复 bug #5：广告位无 meLiked）
 router.get("/", authenticateOptional, async (req: AuthRequest, res: Response) => {
   const ads = await Post.findAll({
-    where: { isAd: true },
+    where: { isAd: true, status: "published", visibility: "public", publishedAt: { [Op.lte]: new Date() } },
     include: adIncludes,
-    order: [["createdAt", "DESC"]],
+    order: [["publishedAt", "DESC"]],
   });
 
   // 预查询当前访客在所有广告上的点赞状态（一次性 IN 查询）
@@ -143,6 +145,9 @@ router.post(
           video,
           pinned: false,
           isAd: true,
+          status: "published",
+          visibility: "public",
+          publishedAt: new Date(),
           adAvatar,
           adNickname,
           likesDisabled: false,
@@ -154,6 +159,7 @@ router.post(
         throw err;
       }
     }
+    await markManagedMediaPublic({ adAvatar, images, linkCard, video });
 
     const full = await Post.findByPk(post!.id, { include: adIncludes });
     triggerRevalidate();
@@ -202,6 +208,7 @@ router.put(
       likesDisabled: req.body.likesDisabled !== undefined ? req.body.likesDisabled : post.likesDisabled,
       commentsDisabled: req.body.commentsDisabled !== undefined ? req.body.commentsDisabled : post.commentsDisabled,
     });
+    await markManagedMediaPublic({ adAvatar: post.adAvatar, images: post.images, linkCard: post.linkCard, video: post.video });
 
     triggerRevalidate();
     res.json(formatAd(post));

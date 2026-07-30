@@ -3,6 +3,7 @@ import { body, validationResult } from "express-validator";
 import { Sequelize } from "sequelize";
 import { FriendLink } from "../models";
 import { authenticate, requireAdmin, AuthRequest } from "../middleware/auth";
+import { markManagedMediaPublic } from "../services/storage-service";
 
 const router = Router();
 
@@ -59,6 +60,7 @@ router.post(
       email: req.body.email || "",
       avatar: req.body.avatar || "",
     });
+    await markManagedMediaPublic(link.avatar);
     res.status(201).json(link);
   }
 );
@@ -93,6 +95,7 @@ router.put(
       email: req.body.email ?? link.email,
       avatar: req.body.avatar ?? link.avatar,
     });
+    await markManagedMediaPublic(link.avatar);
     res.json(link);
   }
 );

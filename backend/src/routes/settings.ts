@@ -5,6 +5,7 @@ import { siteSettingTextDefaults } from "../models/SiteSetting";
 import { authenticate, requireAdmin, AuthRequest } from "../middleware/auth";
 import { sendTestEmail, DEFAULT_EMAIL_TEMPLATE } from "../services/email-service";
 import { triggerRevalidate } from "../utils/revalidate";
+import { markManagedMediaPublic } from "../services/storage-service";
 
 const fontFamilyPattern = /^[\p{L}\p{N} ._-]+$/u;
 
@@ -177,6 +178,12 @@ router.put(
       amapKey: req.body.amapKey ?? setting.amapKey,
       amapJsKey: req.body.amapJsKey ?? setting.amapJsKey,
       amapSecurityJsCode: req.body.amapSecurityJsCode ?? setting.amapSecurityJsCode,
+    });
+    await markManagedMediaPublic({
+      decorationImage: setting.decorationImage,
+      faviconUrl: setting.faviconUrl,
+      ogImage: setting.ogImage,
+      backgroundImages: setting.backgroundImages,
     });
 
     void triggerRevalidate();

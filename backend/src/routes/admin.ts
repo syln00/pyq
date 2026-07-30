@@ -6,6 +6,7 @@ import { User, Post, Comment, Like, SiteSetting } from "../models";
 import { authenticate, requireAdmin, AuthRequest } from "../middleware/auth";
 import { blacklistService } from "../services/blacklist-service";
 import { siteSettingTextDefaults } from "../models/SiteSetting";
+import { markManagedMediaPublic } from "../services/storage-service";
 
 const router = Router();
 
@@ -204,6 +205,7 @@ router.put(
       email: req.body.email ?? user.email,
       username: req.body.username ?? user.username,
     });
+    await markManagedMediaPublic({ avatar: user.avatar, cover: user.cover });
 
     res.json({
       id: user.id,

@@ -11,14 +11,16 @@
 import { Router } from "express";
 import path from "path";
 import multer from "multer";
-import { authenticate, requireAdmin, AuthRequest } from "../middleware/auth";
+import { v4 as uuidv4 } from "uuid";
+import { authenticate, requirePublisher, AuthRequest } from "../middleware/auth";
 import { Media } from "../models";
 import {
   storeFileAndRecordMedia,
   createPresignedUpload,
-  isR2Ready,
+  isS3Ready,
+  mediaContentPath,
 } from "../services/storage-service";
-import { downloadFromR2, deleteFromR2 } from "../services/r2-service";
+import { deleteObject, downloadObject, statObject } from "../services/s3-service";
 import { extractMotionPhoto } from "../services/motion-photo";
 
 const router = Router();
@@ -86,38 +88,38 @@ const motionPhotoUpload = multer({
 });
 
 // POST /api/upload - upload an image (admin only)
-router.post("/", authenticate, requireAdmin, imageUpload.single("image"), async (req: AuthRequest, res) => {
+router.post("/", authenticate, requirePublisher, imageUpload.single("image"), async (req: AuthRequest, res) => {
   if (!req.file) {
     res.status(400).json({ message: "没有上传文件" });
     return;
   }
   try {
-    const { url } = await storeFileAndRecordMedia(
+    const { url, mediaId } = await storeFileAndRecordMedia(
       req.file.buffer,
       req.file.originalname,
       req.file.mimetype,
       req.user!.id
     );
-    res.json({ url });
+    res.json({ url, mediaId });
   } catch (err: any) {
     res.status(500).json({ message: err.message || "上传失败" });
   }
 });
 
 // POST /api/upload/audio - upload an audio file (admin only)
-router.post("/audio", authenticate, requireAdmin, audioUpload.single("audio"), async (req: AuthRequest, res) => {
+router.post("/audio", authenticate, requirePublisher, audioUpload.single("audio"), async (req: AuthRequest, res) => {
   if (!req.file) {
     res.status(400).json({ message: "没有上传文件" });
     return;
   }
   try {
-    const { url } = await storeFileAndRecordMedia(
+    const { url, mediaId } = await storeFileAndRecordMedia(
       req.file.buffer,
       req.file.originalname,
       req.file.mimetype,
       req.user!.id
     );
-    res.json({ url });
+    res.json({ url, mediaId });
   } catch (err: any) {
     res.status(500).json({ message: err.message || "上传失败" });
   }
@@ -127,19 +129,19 @@ router.post("/audio", authenticate, requireAdmin, audioUpload.single("audio"), a
 // 注意：Vercel Serverless 函数请求体上限约 4.5MB，超过该大小的视频
 // 在部署到 Vercel 后会在到达这里之前就被平台拒绝（413）。
 // 大文件请改用 POST /api/upload/presign + PUT 到 R2 + POST /api/upload/confirm。
-router.post("/video", authenticate, requireAdmin, videoUpload.single("video"), async (req: AuthRequest, res) => {
+router.post("/video", authenticate, requirePublisher, videoUpload.single("video"), async (req: AuthRequest, res) => {
   if (!req.file) {
     res.status(400).json({ message: "没有上传文件" });
     return;
   }
   try {
-    const { url } = await storeFileAndRecordMedia(
+    const { url, mediaId } = await storeFileAndRecordMedia(
       req.file.buffer,
       req.file.originalname,
       req.file.mimetype,
       req.user!.id
     );
-    res.json({ url });
+    res.json({ url, mediaId });
   } catch (err: any) {
     res.status(500).json({ message: err.message || "上传失败" });
   }
@@ -150,7 +152,7 @@ router.post("/video", authenticate, requireAdmin, videoUpload.single("video"), a
 router.post(
   "/motion-photo",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   motionPhotoUpload.single("file"),
   async (req: AuthRequest, res) => {
     if (!req.file) {
@@ -169,15 +171,22 @@ router.post(
           storeFileAndRecordMedia(extracted.video, videoName, extracted.videoMime, req.user!.id),
         ]);
 
-        res.json({ image: imageResult.url, video: videoResult.url, isLivePhoto: true });
+        res.json({
+          image: imageResult.url,
+          video: videoResult.url,
+          imageMediaId: imageResult.mediaId,
+          videoMediaId: videoResult.mediaId,
+          mediaIds: [imageResult.mediaId, videoResult.mediaId],
+          isLivePhoto: true,
+        });
       } else {
-        const { url } = await storeFileAndRecordMedia(
+        const { url, mediaId } = await storeFileAndRecordMedia(
           req.file.buffer,
           req.file.originalname,
           req.file.mimetype,
           req.user!.id
         );
-        res.json({ image: url, video: null, isLivePhoto: false });
+        res.json({ image: url, video: null, mediaId, mediaIds: [mediaId], isLivePhoto: false });
       }
     } catch (err: any) {
       res.status(500).json({ message: err.message || "动态照片处理失败" });
@@ -193,19 +202,19 @@ router.post(
 
 // POST /api/upload/presign — 获取预签名直传 URL（admin only）
 // body: { filename: string, mimeType: string, kind?: "image"|"audio"|"video" }
-router.post("/presign", authenticate, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/presign", authenticate, requirePublisher, async (req: AuthRequest, res) => {
   const { filename, mimeType } = req.body || {};
   if (!filename || typeof filename !== "string") {
     res.status(400).json({ message: "缺少 filename 参数" });
     return;
   }
   try {
-    const { uploadUrl, publicUrl, key } = await createPresignedUpload(
+    const { uploadUrl, key } = await createPresignedUpload(
       filename,
       typeof mimeType === "string" ? mimeType : "application/octet-stream",
       "media"
     );
-    res.json({ uploadUrl, publicUrl, key, expiresIn: 600 });
+    res.json({ uploadUrl, key, expiresIn: 600 });
   } catch (err: any) {
     res.status(400).json({ message: err.message || "获取直传地址失败" });
   }
@@ -213,26 +222,32 @@ router.post("/presign", authenticate, requireAdmin, async (req: AuthRequest, res
 
 // POST /api/upload/confirm — 直传完成后登记到媒体库（admin only）
 // body: { key: string, filename: string, mimeType: string, size?: number }
-router.post("/confirm", authenticate, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest, res) => {
   const { key, filename, mimeType, size } = req.body || {};
   if (!key || typeof key !== "string") {
     res.status(400).json({ message: "缺少 key 参数" });
     return;
   }
-  if (!isR2Ready()) {
-    res.status(400).json({ message: "R2 存储未配置" });
+  if (!isS3Ready()) {
+    res.status(400).json({ message: "S3 存储未配置" });
     return;
   }
   try {
-    const { R2_PUBLIC_URL } = process.env as Record<string, string>;
-    const url = `${(R2_PUBLIC_URL || "").replace(/\/+$/, "")}/${key}`;
+    if (!key.startsWith("media/")) throw new Error("对象路径无效");
+    const object = await statObject(key);
+    if (!object) throw new Error("未找到已上传的对象");
+    const mediaId = uuidv4();
+    const url = mediaContentPath(mediaId);
     const media = await Media.create({
+      id: mediaId,
       filename: filename || key,
       url,
-      storageType: "r2",
-      mimeType: mimeType || "application/octet-stream",
+      objectKey: key,
+      storageType: "s3",
+      accessClass: "owner_only",
+      mimeType: object.contentType || mimeType || "application/octet-stream",
       kind: mimeType?.startsWith("audio/") ? "audio" : mimeType?.startsWith("image/") ? "image" : mimeType?.startsWith("video/") ? "video" : "file",
-      size: Number(size) || 0,
+      size: object.size || Number(size) || 0,
       uploaderId: req.user!.id,
     });
     res.status(201).json({ url, mediaId: media.id });
@@ -243,18 +258,19 @@ router.post("/confirm", authenticate, requireAdmin, async (req: AuthRequest, res
 
 // POST /api/upload/motion-photo/confirm — 动态照片走预签名直传后，通知后端拉回并拆分
 // body: { key: string, filename: string }
-router.post("/motion-photo/confirm", authenticate, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/motion-photo/confirm", authenticate, requirePublisher, async (req: AuthRequest, res) => {
   const { key, filename } = req.body || {};
   if (!key || typeof key !== "string") {
     res.status(400).json({ message: "缺少 key 参数" });
     return;
   }
-  if (!isR2Ready()) {
-    res.status(400).json({ message: "R2 存储未配置" });
+  if (!isS3Ready()) {
+    res.status(400).json({ message: "S3 存储未配置" });
     return;
   }
   try {
-    const buffer = await downloadFromR2(key);
+    if (!key.startsWith("media/")) throw new Error("对象路径无效");
+    const buffer = await downloadObject(key);
     const extracted = extractMotionPhoto(buffer);
     const baseName = path.basename(filename || key, path.extname(filename || key));
 
@@ -264,22 +280,32 @@ router.post("/motion-photo/confirm", authenticate, requireAdmin, async (req: Aut
         storeFileAndRecordMedia(extracted.video, `${baseName}.mp4`, extracted.videoMime, req.user!.id),
       ]);
       // 原始合并文件不再需要，清理掉避免占用存储空间
-      deleteFromR2(key).catch(() => {});
-      res.json({ image: imageResult.url, video: videoResult.url, isLivePhoto: true });
+      deleteObject(key).catch(() => {});
+      res.json({
+        image: imageResult.url,
+        video: videoResult.url,
+        imageMediaId: imageResult.mediaId,
+        videoMediaId: videoResult.mediaId,
+        mediaIds: [imageResult.mediaId, videoResult.mediaId],
+        isLivePhoto: true,
+      });
     } else {
       // 非动态照片：直接把已上传的原文件登记为普通图片
-      const { R2_PUBLIC_URL } = process.env as Record<string, string>;
-      const url = `${(R2_PUBLIC_URL || "").replace(/\/+$/, "")}/${key}`;
+      const mediaId = uuidv4();
+      const url = mediaContentPath(mediaId);
       const media = await Media.create({
+        id: mediaId,
         filename: filename || key,
         url,
-        storageType: "r2",
+        objectKey: key,
+        storageType: "s3",
+        accessClass: "owner_only",
         mimeType: "image/jpeg",
         kind: "image",
         size: buffer.length,
         uploaderId: req.user!.id,
       });
-      res.json({ image: url, video: null, isLivePhoto: false, mediaId: media.id });
+      res.json({ image: url, video: null, isLivePhoto: false, mediaId: media.id, mediaIds: [media.id] });
     }
   } catch (err: any) {
     res.status(500).json({ message: err.message || "动态照片处理失败" });
