@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, X, Image as ImageIcon, MapPin, Heart, MessageSquare, Pin, Link2, FolderOpen } from "lucide-react";
 import ArticleEditor, { buildMusicEmbedHtml, buildLinkCardHtml, buildVideoEmbedHtml } from "@/components/ArticleEditor";
 import MediaPicker from "@/components/MediaPicker";
+import PostAccessFields, { type PostVisibility } from "@/components/PostAccessFields";
 import { apiFetch, getToken } from "@/lib/api-fetch";
+import { getSessionUser } from "@/lib/auth";
+import { annotateManagedMediaHtml, collectManagedMediaIds, dateTimeLocalToIso, hasExternalMediaReferences, toDateTimeLocal } from "@/lib/post-media";
 import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { wgs84ToGcj02 } from "@/lib/coord-transform";
 import type { PostMusic, PostVideo, LinkCard } from "@/lib/mock-data";
@@ -33,10 +36,22 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
   const [likesDisabled, setLikesDisabled] = useState(false);
   const [commentsDisabled, setCommentsDisabled] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [visibility, setVisibility] = useState<PostVisibility>("authenticated");
+  const [visibleUserIds, setVisibleUserIds] = useState<string[]>([]);
+  const [publishedAt, setPublishedAt] = useState(() => toDateTimeLocal());
+  const [acknowledgeExternalMediaRisk, setAcknowledgeExternalMediaRisk] = useState(false);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
+  const isAdmin = getSessionUser()?.role === "admin";
   // 编辑模式：加载完成后记录初始快照，用于判断是否有未保存改动
-  const initialSnapshotRef = useRef<{ title: string; content: string; caption: string } | null>(null);
+  const initialSnapshotRef = useRef<{
+    title: string;
+    content: string;
+    caption: string;
+    visibility: PostVisibility;
+    visibleUserIds: string[];
+    publishedAt: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!articleId) return;
@@ -69,10 +84,19 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
         setLikesDisabled(!!data.likesDisabled);
         setCommentsDisabled(!!data.commentsDisabled);
         setPinned(!!data.pinned);
+        const loadedVisibility: PostVisibility = data.visibility || "public";
+        const loadedVisibleUserIds = Array.isArray(data.visibleUserIds) ? data.visibleUserIds : [];
+        const loadedPublishedAt = toDateTimeLocal(data.publishedAt || data.createdAt);
+        setVisibility(loadedVisibility);
+        setVisibleUserIds(loadedVisibleUserIds);
+        setPublishedAt(loadedPublishedAt);
         initialSnapshotRef.current = {
           title: data.title || "",
           content: mergedContent,
           caption: data.excerpt || "",
+          visibility: loadedVisibility,
+          visibleUserIds: loadedVisibleUserIds,
+          publishedAt: loadedPublishedAt,
         };
       } catch (err) {
         alert(err instanceof Error ? err.message : "加载文章失败");
@@ -170,6 +194,29 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
         return;
       }
     }
+    if (!publishedAt) {
+      alert("请选择发布时间");
+      return;
+    }
+    const selectedPublishedAt = new Date(publishedAt);
+    if (Number.isNaN(selectedPublishedAt.getTime())) {
+      alert("请选择有效的发布时间");
+      return;
+    }
+    if (selectedPublishedAt.getTime() > Date.now() + 60_000) {
+      alert("发布时间不能晚于当前时间");
+      return;
+    }
+    if (visibility === "selected" && visibleUserIds.length === 0) {
+      alert("指定用户可见时至少选择一个用户");
+      return;
+    }
+    const managedContent = annotateManagedMediaHtml(content);
+    const externalMediaRisk = visibility !== "public" && hasExternalMediaReferences(managedContent, cover);
+    if (externalMediaRisk && !acknowledgeExternalMediaRisk) {
+      alert("请先确认外部媒体无法受本站权限保护的风险");
+      return;
+    }
     setSaving(status);
     try {
       const token = getToken();
@@ -181,7 +228,7 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
       const body: Record<string, unknown> = {
         type: "article" as const,
         title: title.trim(),
-        content,
+        content: managedContent,
         // excerpt 复用为朋友圈配文（卡片上方文字），不再用标题填充
         excerpt: caption.trim(),
         cover,
@@ -193,6 +240,11 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
         commentsDisabled,
         pinned,
         status,
+        visibility,
+        visibleUserIds: visibility === "selected" ? visibleUserIds : [],
+        publishedAt: dateTimeLocalToIso(publishedAt),
+        mediaIds: collectManagedMediaIds(managedContent, cover),
+        acknowledgeExternalMediaRisk: externalMediaRisk ? acknowledgeExternalMediaRisk : false,
       };
 
       if (isEdit) {
@@ -230,7 +282,7 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
     } finally {
       setSaving(null);
     }
-  }, [title, content, caption, cover, articleType, repostUrl, region, likesDisabled, commentsDisabled, pinned, isEdit, articleId, router]);
+  }, [title, content, caption, cover, articleType, repostUrl, region, likesDisabled, commentsDisabled, pinned, visibility, visibleUserIds, publishedAt, acknowledgeExternalMediaRisk, isEdit, articleId, router]);
 
   // 判断是否有未保存改动
   // - 新建模式：标题或正文任一非空即视为有内容
@@ -241,8 +293,18 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
     }
     const snap = initialSnapshotRef.current;
     if (!snap) return false;
-    return snap.title !== title || snap.content !== content || snap.caption !== caption;
-  }, [title, content, caption, isEdit]);
+    return snap.title !== title
+      || snap.content !== content
+      || snap.caption !== caption
+      || snap.visibility !== visibility
+      || snap.publishedAt !== publishedAt
+      || snap.visibleUserIds.slice().sort().join(",") !== visibleUserIds.slice().sort().join(",");
+  }, [title, content, caption, visibility, visibleUserIds, publishedAt, isEdit]);
+
+  const externalMediaRisk = visibility !== "public" && hasExternalMediaReferences(content, cover);
+  const accessReady = !!publishedAt
+    && (visibility !== "selected" || visibleUserIds.length > 0)
+    && (!externalMediaRisk || acknowledgeExternalMediaRisk);
 
   // 草稿提交状态记录：避免保存后触发 beforeunload 提示
   const savedDraftRef = useRef(false);
@@ -307,7 +369,7 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
         <button
           type="button"
           onClick={() => handleSave("draft")}
-          disabled={saving !== null}
+          disabled={saving !== null || !accessReady}
           className="flex shrink-0 items-center gap-1.5 rounded-lg border border-adm-border bg-adm-card px-4 py-2.5 text-sm font-medium text-adm-text-secondary transition-colors hover:bg-adm-card-hover disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[#1e1e22]"
         >
           {saving === "draft" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -316,7 +378,7 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
         <button
           type="button"
           onClick={() => handleSave("published")}
-          disabled={saving !== null || !title.trim()}
+          disabled={saving !== null || !title.trim() || !accessReady}
           className="flex shrink-0 items-center gap-1.5 rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200 dark:disabled:bg-white/10 dark:disabled:text-gray-600"
         >
           {saving === "published" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -491,6 +553,19 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
               )}
             </div>
 
+            <PostAccessFields
+              visibility={visibility}
+              onVisibilityChange={setVisibility}
+              visibleUserIds={visibleUserIds}
+              onVisibleUserIdsChange={setVisibleUserIds}
+              publishedAt={publishedAt}
+              onPublishedAtChange={setPublishedAt}
+              externalMediaRisk={externalMediaRisk}
+              acknowledgeExternalMediaRisk={acknowledgeExternalMediaRisk}
+              onAcknowledgeExternalMediaRiskChange={setAcknowledgeExternalMediaRisk}
+              variant="admin"
+            />
+
             {/* 互动设置 */}
             <div className="rounded-xl border border-adm-border bg-adm-card p-4">
               <label className="mb-3 block text-xs font-medium text-adm-text-secondary">
@@ -509,12 +584,14 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
                   checked={!commentsDisabled}
                   onChange={(v) => setCommentsDisabled(!v)}
                 />
-                <ToggleRow
-                  icon={<Pin className="h-4 w-4 rotate-45" />}
-                  label="置顶文章"
-                  checked={pinned}
-                  onChange={setPinned}
-                />
+                {isAdmin && (
+                  <ToggleRow
+                    icon={<Pin className="h-4 w-4 rotate-45" />}
+                    label="置顶文章"
+                    checked={pinned}
+                    onChange={setPinned}
+                  />
+                )}
               </div>
             </div>
           </div>

@@ -311,6 +311,7 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response) =>
     where: publishedPostWhere(req.user, filters),
     include: [
       { model: User, as: "author", attributes: ["id", "email", "username", "nickname", "avatar", "cover", "bio"] },
+      { model: User, as: "visibleUsers", attributes: ["id"], through: { attributes: [] }, required: false },
       { model: Comment, as: "comments" },
       { model: Like, as: "likes", include: [{ model: User, as: "user", attributes: ["email"], required: false }] },
     ],
@@ -435,6 +436,7 @@ router.get("/:id", authenticateOptional, async (req: AuthRequest, res: Response)
     where,
     include: [
       { model: User, as: "author", attributes: ["id", "email", "username", "nickname", "avatar", "cover", "bio"] },
+      { model: User, as: "visibleUsers", attributes: ["id"], through: { attributes: [] }, required: false },
       { model: Comment, as: "comments" },
       { model: Like, as: "likes", include: [{ model: User, as: "user", attributes: ["email"], required: false }] },
     ],

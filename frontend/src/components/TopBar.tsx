@@ -46,7 +46,8 @@ import { Post, type PostLocation, type PostImage, type PostVideo, type PostDouba
 import { isLivePhoto, getImageSrc } from "@/lib/post-image";
 import { uploadAudio, uploadDirect, uploadImage, uploadVideo, toAbsoluteUrl, toHttps } from "@/lib/upload";
 import { PUBLIC_API_URL } from "@/lib/api-fetch";
-import { logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
+import { getSessionUser, logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
+import { collectManagedMediaIds, dateTimeLocalToIso, hasExternalMediaReferences, toDateTimeLocal } from "@/lib/post-media";
 import { splitMotionPhoto } from "@/lib/motion-photo";
 import { useExitAnimation } from "@/lib/use-exit-animation";
 import RichTextEditor from "./RichTextEditor";
@@ -58,6 +59,7 @@ import MediaPicker, { type PickerMediaItem } from "./MediaPicker";
 import DoubanPicker from "./DoubanPicker";
 import DoubanEmbedCard from "./article/DoubanEmbedCard";
 import DoubanSidebar from "./DoubanSidebar";
+import PostAccessFields, { type PostVisibility } from "./PostAccessFields";
 
 const API_URL = PUBLIC_API_URL;
 const AUDIO_BASE = API_URL.replace("/api", "");
@@ -1048,7 +1050,7 @@ export function PublishModal({
     cover: string;
     url: string;
     source: "upload";
-    /** LRC 歌词文本（R2 上传音乐） */
+    /** LRC 歌词文本（S3 上传音乐） */
     lrc?: string;
   } | null>(editPost?.music ?? null);
   const [linkCard, setLinkCard] = useState<{
@@ -1073,7 +1075,7 @@ export function PublishModal({
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [mediaRendered, setMediaRendered] = useState(false);
   const mediaSentinelRef = useRef<HTMLDivElement>(null);
-  // R2 音频仅支持上传或从媒体库选择。
+  // S3 音频仅支持上传或从媒体库选择。
   const [uploadingAudio, setUploadingAudio] = useState(false);
   // 编辑模式：从 editPost.music 回填元数据，避免用户看到空白表单
   const [customMusicName, setCustomMusicName] = useState(editPost?.music?.name ?? "");
@@ -1089,6 +1091,13 @@ export function PublishModal({
   const [commentsDisabled, setCommentsDisabled] = useState(editPost?.commentsDisabled ?? false);
   // 作为广告发布：勾选后该动态以广告形式展示
   const [isAd, setIsAd] = useState(!!editPost?.isAd);
+  const [visibility, setVisibility] = useState<PostVisibility>(editPost?.visibility || "authenticated");
+  const [visibleUserIds, setVisibleUserIds] = useState<string[]>(editPost?.visibleUserIds || []);
+  const [publishedAt, setPublishedAt] = useState(
+    toDateTimeLocal(editPost?.publishedAt || editPost?.createdAt)
+  );
+  const [acknowledgeExternalMediaRisk, setAcknowledgeExternalMediaRisk] = useState(false);
+  const isAdmin = getSessionUser()?.role === "admin";
 
   const uploadOne = async (
     file: File,
@@ -1122,7 +1131,7 @@ export function PublishModal({
     return response.json() as Promise<{ image: string; video: string; isLivePhoto: boolean }>;
   };
 
-  // 浏览器本地拆分 JPEG 内嵌 MP4 后分别直传 R2，避免 Vercel 函数处理大文件。
+  // 浏览器本地拆分 JPEG 内嵌 MP4 后分别直传 S3，避免应用服务处理大文件。
   const uploadMotionPhoto = async (
     file: File
   ): Promise<{ image: string; video: string | null; isLivePhoto: boolean } | null> => {
@@ -1191,7 +1200,7 @@ export function PublishModal({
       for (const [, g] of groups) {
         if (images.length + newImages.length >= 9) break;
         if (g.image && g.video) {
-          // 实况图：图片和视频先直传 R2，再由后端建立媒体库配对。
+          // 实况图：图片和视频先直传 S3，再由后端建立媒体库配对。
           try {
             const pair = await createLivePhotoPair(g.image, g.video);
             newImages.push({ src: pair.image, video: pair.video });
@@ -1317,7 +1326,7 @@ export function PublishModal({
   const handleConfirmUploadMusic = () => {
     const url = uploadedAudioUrl;
     if (!url) {
-      setError("请上传 R2 音频文件");
+      setError("请上传 S3 音频文件");
       return;
     }
     setMusic({
@@ -1411,13 +1420,55 @@ export function PublishModal({
     }
   };
 
+  const activeImages = uploadMode === "video" ? [] : images;
+  const activeVideo = uploadMode === "video" ? video : null;
+  const hasActiveMedia = activeImages.length > 0 || !!activeVideo;
+  const hasPublishableContent = !isContentEmpty(content) || hasActiveMedia || !!music || !!linkCard || !!douban;
+  const effectiveVisibility: PostVisibility = isAd ? "public" : visibility;
+  const externalMediaRisk = effectiveVisibility !== "public" && hasExternalMediaReferences(
+    content,
+    activeImages,
+    music,
+    linkCard,
+    activeVideo,
+    douban
+  );
+  const accessReady = (
+    effectiveVisibility !== "selected" || visibleUserIds.length > 0
+  ) && (!externalMediaRisk || acknowledgeExternalMediaRisk) && !!publishedAt;
+
   const handleSubmit = async () => {
-    if (!hasPublishableContent) return;
+    if (!hasPublishableContent || !accessReady) return;
     setSubmitting(true);
     setError("");
     try {
+      const selectedPublishedAt = new Date(publishedAt);
+      if (Number.isNaN(selectedPublishedAt.getTime())) {
+        setError("请选择有效的发布时间");
+        return;
+      }
+      if (selectedPublishedAt.getTime() > Date.now() + 60_000) {
+        setError("发布时间不能晚于当前时间");
+        return;
+      }
+      if (effectiveVisibility === "selected" && visibleUserIds.length === 0) {
+        setError("指定用户可见时至少选择一个用户");
+        return;
+      }
+      if (externalMediaRisk && !acknowledgeExternalMediaRisk) {
+        setError("请先确认外部媒体无法受本站权限保护的风险");
+        return;
+      }
       const url = isEdit ? `${API_URL}/posts/${editPost!.id}` : `${API_URL}/posts`;
       const method = isEdit ? "PUT" : "POST";
+      const mediaIds = collectManagedMediaIds(content, activeImages, music, linkCard, activeVideo, douban);
+      const accessPayload = {
+        visibility: effectiveVisibility,
+        visibleUserIds: effectiveVisibility === "selected" ? visibleUserIds : [],
+        publishedAt: dateTimeLocalToIso(publishedAt),
+        mediaIds,
+        acknowledgeExternalMediaRisk: externalMediaRisk ? acknowledgeExternalMediaRisk : false,
+      };
       // 编辑模式：空值显式传 null/空数组/空字符串，否则 JSON.stringify 省略 undefined 字段，
       // 后端收不到该字段就会保持原值，导致"删除内容后编辑无效"的 bug
       // 视频独占：video 存在时 images 强制为 []
@@ -1433,6 +1484,7 @@ export function PublishModal({
             isAd,
             likesDisabled,
             commentsDisabled,
+            ...accessPayload,
           }
         : {
             content: isContentEmpty(content) ? undefined : content,
@@ -1445,6 +1497,7 @@ export function PublishModal({
             isAd,
             likesDisabled,
             commentsDisabled,
+            ...accessPayload,
           };
       const res = await fetch(url, {
         method,
@@ -1474,10 +1527,6 @@ export function PublishModal({
     }
   };
 
-  const activeImages = uploadMode === "video" ? [] : images;
-  const activeVideo = uploadMode === "video" ? video : null;
-  const hasActiveMedia = activeImages.length > 0 || !!activeVideo;
-  const hasPublishableContent = !isContentEmpty(content) || hasActiveMedia || !!music || !!linkCard || !!douban;
   const imgCount = images.length;
   const audioBase = API_URL.replace("/api", "");
   const { closing, handleClose } = useExitAnimation(onClose, 250);
@@ -1496,7 +1545,7 @@ export function PublishModal({
         </button>
         <button
           onClick={handleSubmit}
-          disabled={submitting || !hasPublishableContent}
+          disabled={submitting || !hasPublishableContent || !accessReady}
           className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors disabled:bg-wechat-bubble disabled:text-wechat-time enabled:bg-green-500 enabled:text-white enabled:hover:bg-green-600 dark:disabled:bg-white/5 dark:disabled:text-gray-500"
         >
           {submitting ? (isEdit ? "保存中" : "发表中") : isEdit ? "保存" : "发表"}
@@ -2089,26 +2138,50 @@ export function PublishModal({
             </div>
           )}
 
-          {/* 作为广告发布 — 勾选后该动态以广告形式展示在信息流广告位 */}
-          <div className="flex items-center gap-3 border-t border-black/5 py-3 dark:border-white/5">
-            <Megaphone className="h-5 w-5 shrink-0 text-wechat-time" />
-            <span className="flex-1 text-[15px] text-wechat-text dark:text-gray-200">作为广告</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={isAd}
-              onClick={() => setIsAd((v) => !v)}
-              className={`relative h-[22px] w-[40px] rounded-full transition-colors ${
-                isAd ? "bg-green-500" : "bg-black/15 dark:bg-white/20"
-              }`}
-            >
-              <span
-                className={`absolute left-[2px] top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow transition-transform ${
-                  isAd ? "translate-x-[18px]" : "translate-x-0"
+          <PostAccessFields
+            visibility={effectiveVisibility}
+            onVisibilityChange={setVisibility}
+            visibleUserIds={visibleUserIds}
+            onVisibleUserIdsChange={setVisibleUserIds}
+            publishedAt={publishedAt}
+            onPublishedAtChange={setPublishedAt}
+            externalMediaRisk={externalMediaRisk}
+            acknowledgeExternalMediaRisk={acknowledgeExternalMediaRisk}
+            onAcknowledgeExternalMediaRiskChange={setAcknowledgeExternalMediaRisk}
+            visibilityDisabled={isAd}
+          />
+
+          {/* 作为广告发布 — 仅管理员可见；广告固定公开 */}
+          {isAdmin && (
+            <div className="flex items-center gap-3 border-t border-black/5 py-3 dark:border-white/5">
+              <Megaphone className="h-5 w-5 shrink-0 text-wechat-time" />
+              <span className="flex-1 text-[15px] text-wechat-text dark:text-gray-200">作为广告（固定公开）</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isAd}
+                onClick={() => {
+                  setIsAd((current) => {
+                    const next = !current;
+                    if (next) {
+                      setVisibility("public");
+                      setVisibleUserIds([]);
+                    }
+                    return next;
+                  });
+                }}
+                className={`relative h-[22px] w-[40px] rounded-full transition-colors ${
+                  isAd ? "bg-green-500" : "bg-black/15 dark:bg-white/20"
                 }`}
-              />
-            </button>
-          </div>
+              >
+                <span
+                  className={`absolute left-[2px] top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow transition-transform ${
+                    isAd ? "translate-x-[18px]" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+          )}
 
           {/* 允许点赞 — 微信朋友圈风格开关行 */}
           <div className="flex items-center gap-3 border-t border-black/5 py-3 dark:border-white/5">
@@ -2269,7 +2342,7 @@ export function PublishModal({
 
                 {/* 音频来源：上传文件 / 直链URL 切换 */}
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-wechat-time">R2 音频文件</label>
+                  <label className="mb-1.5 block text-xs font-medium text-wechat-time">S3 音频文件</label>
                   {uploadedAudioUrl ? (
                       <div className="flex items-center justify-between rounded-lg border border-black/5 bg-wechat-bubble px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
                         <div className="flex min-w-0 items-center gap-2">
