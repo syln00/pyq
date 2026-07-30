@@ -2,6 +2,11 @@ import type { CookieOptions, Request } from "express";
 
 export const SESSION_COOKIE_NAME = "pyq_session";
 
+function booleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (value == null || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
 function durationMs(value: string): number {
   const match = value.trim().match(/^(\d+)\s*([smhd])?$/i);
   if (!match) return 7 * 24 * 60 * 60 * 1000;
@@ -14,7 +19,7 @@ function durationMs(value: string): number {
 export function sessionCookieOptions(): CookieOptions {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: booleanEnv(process.env.SESSION_COOKIE_SECURE, process.env.NODE_ENV === "production"),
     sameSite: "lax",
     path: "/",
     maxAge: durationMs(process.env.JWT_EXPIRES_IN || "7d"),

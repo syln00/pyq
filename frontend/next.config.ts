@@ -1,8 +1,13 @@
 import type { NextConfig } from "next";
 
 const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:4000").replace(/\/+$/, "");
+const PROJECT_ROOT = process.cwd();
 const nextConfig: NextConfig = {
   output: "standalone",
+  outputFileTracingRoot: PROJECT_ROOT,
+  turbopack: {
+    root: PROJECT_ROOT,
+  },
   staticPageGenerationTimeout: 300,
   images: {
     remotePatterns: [
