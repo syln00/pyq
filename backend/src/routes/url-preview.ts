@@ -6,7 +6,7 @@
 import { Router, Request, Response } from "express";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { authenticate } from "../middleware/auth";
+import { authenticate, requirePublisher } from "../middleware/auth";
 
 const router = Router();
 
@@ -106,6 +106,7 @@ function extractLinkCard(html: string, url: string): LinkCardData {
 router.get(
   "/",
   authenticate,
+  requirePublisher,
   async (req: Request, res: Response) => {
     const url = String(req.query.url || "");
     if (!url) {

@@ -7,7 +7,7 @@
 import { Router, Request, Response } from "express";
 import axios from "axios";
 import { body, validationResult } from "express-validator";
-import { authenticate, requireAdmin } from "../middleware/auth";
+import { authenticate, requirePublisher } from "../middleware/auth";
 
 const router = Router();
 
@@ -241,7 +241,7 @@ export async function parseVideoFromUrl(url: string): Promise<ParsedVideo> {
 router.post(
   "/parse",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   [body("url").isString().trim().notEmpty()],
   async (req: Request, res: Response) => {
     const errors = validationResult(req);

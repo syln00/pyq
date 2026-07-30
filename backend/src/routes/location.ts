@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { SiteSetting } from "../models";
-import { authenticate, requireAdmin, AuthRequest } from "../middleware/auth";
+import { authenticate, requirePublisher, AuthRequest } from "../middleware/auth";
 
 const router = Router();
 
@@ -26,7 +26,7 @@ function amapErrorMessage(data: any): string {
 
 /**
  * GET /api/location/key
- * 返回高德 JS API Key + 安全密钥（admin only）
+ * 返回高德 JS API Key + 安全密钥（publisher only）
  * 前端动态加载高德 JS API 时需要这两个值
  * amapJsKey 用于前端 JS API 加载（Web端 JS API 类型）
  * amapKey 是后端 REST API 用的 Web服务 Key，不返回给前端
@@ -34,7 +34,7 @@ function amapErrorMessage(data: any): string {
 router.get(
   "/key",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   async (_req: AuthRequest, res: Response) => {
     const setting = await SiteSetting.findByPk(1);
     res.json({
@@ -46,13 +46,13 @@ router.get(
 
 /**
  * GET /api/location/regeo?lng=114.40&lat=30.50
- * 逆地理编码：根据经纬度获取地址和附近 POI 列表（admin only）
+ * 逆地理编码：根据经纬度获取地址和附近 POI 列表（publisher only）
  * 返回 { formattedAddress, city, address, pois: [{ name, address, lng, lat }] }
  */
 router.get(
   "/regeo",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   async (req: Request, res: Response) => {
     const lng = parseFloat(String(req.query.lng || ""));
     const lat = parseFloat(String(req.query.lat || ""));
@@ -115,7 +115,7 @@ router.get(
  * 代理高德 REST API 的 POI 搜索，Key 从数据库 site_settings 读取。
  * 返回精简的 POI 列表：[{ name, city, address, lng, lat }]
  */
-router.get("/search", async (req: Request, res: Response) => {
+router.get("/search", authenticate, requirePublisher, async (req: Request, res: Response) => {
   const keywords = String(req.query.keywords || "").trim();
   if (!keywords) {
     res.json([]);
@@ -170,14 +170,14 @@ router.get("/search", async (req: Request, res: Response) => {
 
 /**
  * GET /api/location/ip
- * IP 定位：根据请求者的 IP 返回城市级别位置（admin only）
+ * IP 定位：根据请求者的 IP 返回城市级别位置（publisher only）
  * 作为 GPS 定位失败时的 fallback，精度为城市级别
  * 高德 IP 定位 API 返回 rectangle（城市矩形范围），取中心点作为定位结果
  */
 router.get(
   "/ip",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   async (req: AuthRequest, res: Response) => {
     const setting = await SiteSetting.findByPk(1);
     const amapKey = setting?.amapKey || "";
