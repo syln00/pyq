@@ -58,6 +58,21 @@ export function toAbsoluteUrl(url: string) {
   return url;
 }
 
+/**
+ * Managed media may require the browser's session cookie. Next.js Image
+ * Optimization deliberately does not forward request headers, so these URLs
+ * must be loaded directly by the browser instead of through `/_next/image`.
+ */
+export function isManagedMediaUrl(url: string): boolean {
+  if (!url || typeof url !== "string") return false;
+  try {
+    const pathname = url.startsWith("http") ? new URL(url).pathname : url.split(/[?#]/, 1)[0];
+    return /^\/api\/media\/[0-9a-f-]{36}\/content\/?$/i.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
 /** Upgrade http:// to https:// to avoid Mixed Content warnings on HTTPS pages */
 export function toHttps(url: string): string {
   if (!url || typeof url !== "string") return url;

@@ -20,7 +20,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
+import { isManagedMediaUrl, uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { resolveAvatar } from "@/lib/avatar";
 import { apiFetch, getToken } from "@/lib/api-fetch";
 import MediaPicker from "@/components/MediaPicker";
@@ -86,6 +86,7 @@ function ImageField({
               fill
               className="object-cover"
               sizes={rounded ? "64px" : "128px"}
+              unoptimized={isManagedMediaUrl(url)}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-adm-text-tertiary">
@@ -204,6 +205,7 @@ function BackgroundImagesEditor({
                 fill
                 className="object-cover"
                 sizes="120px"
+                unoptimized={isManagedMediaUrl(url)}
               />
               <button
                 type="button"
@@ -470,7 +472,7 @@ export default function AdminUsers() {
               fill
               className="object-cover"
               sizes="80px"
-              unoptimized={previewAvatar.endsWith(".svg")}
+              unoptimized={isManagedMediaUrl(previewAvatar) || previewAvatar.endsWith(".svg")}
             />
           </div>
           <div className="text-center sm:text-left">

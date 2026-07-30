@@ -7,7 +7,7 @@ import { Music, Pause, Play } from "lucide-react";
 import { Post, PostMusic, formatDetailTime, getPostSourceLabel, postPublishedAt } from "@/lib/mock-data";
 import { resolveAvatar } from "@/lib/avatar";
 import { normalizeImages } from "@/lib/post-image";
-import { toAbsoluteUrl, toHttps } from "@/lib/upload";
+import { isManagedMediaUrl, toAbsoluteUrl, toHttps } from "@/lib/upload";
 import { renderContent } from "@/lib/sanitize";
 import { getCurrentUser, authFetchHeaders } from "@/lib/auth";
 import { useMusicPlayer, getStaticMusicUrl } from "@/lib/music-player-store";
@@ -271,7 +271,7 @@ export default function PostDetail({ post }: PostDetailProps) {
           fill
           className="object-cover"
           sizes="44px"
-          unoptimized={authorAvatar.endsWith(".svg")}
+          unoptimized={isManagedMediaUrl(authorAvatar) || authorAvatar.endsWith(".svg")}
         />
       </Link>
 

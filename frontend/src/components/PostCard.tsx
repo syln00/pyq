@@ -8,7 +8,7 @@ import { Music, Pause, Pin, FileText } from "lucide-react";
 import { Post, formatRelativeTime, getPostSourceLabel, postPublishedAt } from "@/lib/mock-data";
 import { resolveAvatar } from "@/lib/avatar";
 import { normalizeImages } from "@/lib/post-image";
-import { toAbsoluteUrl, toHttps } from "@/lib/upload";
+import { isManagedMediaUrl, toAbsoluteUrl, toHttps } from "@/lib/upload";
 import { getCurrentUser } from "@/lib/auth";
 import { renderContent } from "@/lib/sanitize";
 import { useMusicPlayer, getStaticMusicUrl } from "@/lib/music-player-store";
@@ -302,7 +302,7 @@ export default function PostCard({ post, index, onDelete }: PostCardProps) {
             onLoad={() => setAvatarLoaded(true)}
             className={`object-cover transition-opacity duration-500 ${avatarLoaded ? "opacity-100" : "opacity-0"}`}
             sizes="44px"
-            unoptimized={authorAvatar.endsWith(".svg")}
+            unoptimized={isManagedMediaUrl(authorAvatar) || authorAvatar.endsWith(".svg")}
           />
         </div>
       ) : (
@@ -318,7 +318,7 @@ export default function PostCard({ post, index, onDelete }: PostCardProps) {
             onLoad={() => setAvatarLoaded(true)}
             className={`object-cover transition-opacity duration-500 ${avatarLoaded ? "opacity-100" : "opacity-0"}`}
             sizes="44px"
-            unoptimized={authorAvatar.endsWith(".svg")}
+            unoptimized={isManagedMediaUrl(authorAvatar) || authorAvatar.endsWith(".svg")}
           />
         </Link>
       )}

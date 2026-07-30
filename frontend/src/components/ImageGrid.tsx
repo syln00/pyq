@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect, useRef, type MouseEvent as ReactMouse
 import ImageViewer from "./ImageViewer";
 import type { PostImage } from "@/lib/mock-data";
 import { isLivePhoto, getImageSrc, getVideoSrc } from "@/lib/post-image";
+import { isManagedMediaUrl } from "@/lib/upload";
 import { Volume2, VolumeX } from "lucide-react";
 
 interface ImageGridProps {
@@ -31,6 +32,7 @@ function FadeImage({
       sizes={sizes}
       onLoad={() => setLoaded(true)}
       className={`${className} transition-opacity duration-500 ${loaded ? "opacity-100" : "opacity-0"}`}
+      unoptimized={isManagedMediaUrl(src)}
     />
   );
 }
