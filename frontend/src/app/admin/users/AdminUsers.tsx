@@ -24,7 +24,8 @@ import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { resolveAvatar } from "@/lib/avatar";
 import { apiFetch, getToken } from "@/lib/api-fetch";
 import MediaPicker from "@/components/MediaPicker";
-import { refreshSessionUser } from "@/lib/auth";
+import UserAccessManager from "@/components/admin/UserAccessManager";
+import { getSessionUser, refreshSessionUser } from "@/lib/auth";
 
 interface User {
   id: string;
@@ -35,6 +36,7 @@ interface User {
   cover: string;
   bio: string;
   website: string;
+  role: "admin" | "visitor";
 }
 
 function ImageField({
@@ -329,18 +331,20 @@ export default function AdminUsers() {
       fetch(`${process.env.NEXT_PUBLIC_API_URL || "/api"}/settings`, { cache: "no-store" }).then((res) => res.json()),
     ])
       .then(([data, settings]: [User[], any]) => {
+        let profileUser: User | undefined;
         if (Array.isArray(data)) {
-          const admin = data[0];
-          if (admin) {
-            setUser(admin);
+          const currentUserId = getSessionUser()?.id;
+          profileUser = data.find((item) => item.id === currentUserId) || data.find((item) => item.role === "admin");
+          if (profileUser) {
+            setUser(profileUser);
             setForm({
-              email: admin.email || "",
-              username: admin.username || "",
-              nickname: admin.nickname,
-              bio: admin.bio,
-              website: admin.website || "",
-              avatar: admin.avatar,
-              cover: admin.cover,
+              email: profileUser.email || "",
+              username: profileUser.username || "",
+              nickname: profileUser.nickname,
+              bio: profileUser.bio,
+              website: profileUser.website || "",
+              avatar: profileUser.avatar,
+              cover: profileUser.cover,
             });
           }
         }
@@ -358,7 +362,7 @@ export default function AdminUsers() {
           }
         }
         // 如果后端没有轮播图但用户有封面图，用封面图初始化
-        const cover = data?.[0]?.cover;
+        const cover = profileUser?.cover;
         if (bgImages.length === 0 && cover) {
           bgImages = [cover];
         }
@@ -444,9 +448,11 @@ export default function AdminUsers() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-bold text-adm-text">个人资料</h2>
-        <p className="mt-1 text-sm text-adm-text-secondary">管理你的博客信息和头像</p>
+        <h2 className="text-lg font-bold text-adm-text">用户与个人资料</h2>
+        <p className="mt-1 text-sm text-adm-text-secondary">审核账号、分配发布权限并管理管理员资料</p>
       </div>
+
+      <UserAccessManager />
 
       {/* Profile + Password forms — 双栏布局（桌面端） */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

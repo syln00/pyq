@@ -195,6 +195,12 @@ router.post(
       return;
     }
 
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      res.status(401).json({ message: "用户名或密码错误" });
+      return;
+    }
+
     if (user.role !== "admin" && user.accountStatus !== "active") {
       const code = `ACCOUNT_${user.accountStatus.toUpperCase()}`;
       const message = user.accountStatus === "pending"
@@ -203,12 +209,6 @@ router.post(
           ? "注册申请未通过审核"
           : "账号已被停用";
       res.status(403).json({ message, code });
-      return;
-    }
-
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
-      res.status(401).json({ message: "用户名或密码错误" });
       return;
     }
 

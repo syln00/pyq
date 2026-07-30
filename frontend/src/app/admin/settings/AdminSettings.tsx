@@ -53,6 +53,7 @@ interface SiteSettings {
   rssEnabled: boolean;
   rssIncludeMoments: boolean;
   doubanId: string;
+  registrationEnabled: boolean;
 }
 
 const DEFAULTS: SiteSettings = {
@@ -77,6 +78,7 @@ const DEFAULTS: SiteSettings = {
   rssEnabled: true,
   rssIncludeMoments: true,
   doubanId: "",
+  registrationEnabled: false,
 };
 
 interface SocialLink {
@@ -705,6 +707,30 @@ export default function AdminSettings() {
               onChange={(e) => setForm({ ...form, darkModeEndTime: e.target.value })}
               className="rounded-lg border border-adm-border bg-adm-bg px-3 py-2 text-sm text-adm-text focus:border-adm-primary focus:outline-none focus:ring-1 focus:ring-adm-primary disabled:opacity-50"
             />
+          </div>
+        </div>
+
+        {/* Registration section */}
+        <div className="mb-6 mt-8 flex items-center gap-2 border-b border-adm-border pb-3">
+          <Shield className="h-4 w-4 text-adm-text-tertiary" />
+          <h3 className="text-sm font-semibold text-adm-text">注册与访问</h3>
+        </div>
+
+        <div className="mb-6 flex items-start gap-3">
+          <input
+            type="checkbox"
+            id="registrationEnabled"
+            checked={form.registrationEnabled}
+            onChange={(e) => setForm({ ...form, registrationEnabled: e.target.checked })}
+            className="mt-0.5 h-4 w-4 rounded border-adm-border text-adm-primary focus:ring-adm-primary"
+          />
+          <div>
+            <label htmlFor="registrationEnabled" className="text-sm text-adm-text">
+              允许新用户注册
+            </label>
+            <p className="mt-1 text-xs leading-5 text-adm-text-tertiary">
+              新用户注册后默认为待审核状态，必须由管理员审核通过后才能登录。
+            </p>
           </div>
         </div>
 

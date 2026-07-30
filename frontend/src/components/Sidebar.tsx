@@ -10,7 +10,7 @@ import { toAbsoluteUrl } from "@/lib/upload";
 import { PublishModal, type LoggedInUser } from "@/components/TopBar";
 import { SocialIcon, getSocialPlatform } from "@/components/SocialIcons";
 import AdminNotifications from "@/components/AdminNotifications";
-import { logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
+import { authErrorMessage, logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
 
 interface FriendLink {
   id: string;
@@ -218,7 +218,7 @@ export default function Sidebar({ owner }: SidebarProps) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setLoginError(data.message || "登录失败");
+        setLoginError(authErrorMessage(data, "登录失败"));
         return;
       }
       setSessionUser(data.user);
@@ -418,6 +418,9 @@ export default function Sidebar({ owner }: SidebarProps) {
                     取消
                   </button>
                 </div>
+                <Link href="/register" className="block text-center text-xs text-wechat-link hover:underline">
+                  注册新账号
+                </Link>
               </div>
             ) : (
               <button

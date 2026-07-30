@@ -121,7 +121,7 @@ export default function AdminLayoutClient({
     {
       label: "设置",
       items: [
-        { href: "/admin/users", label: "个人资料", icon: User },
+        { href: "/admin/users", label: "用户管理", icon: User },
         { href: "/admin/friends", label: "友情链接", icon: BookUser },
         { href: "/admin/music", label: "S3 音乐歌单", icon: Music },
         { href: "/admin/storage", label: "云端存储", icon: Cloud },

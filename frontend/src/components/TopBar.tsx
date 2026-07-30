@@ -46,7 +46,7 @@ import { Post, type PostLocation, type PostImage, type PostVideo, type PostDouba
 import { isLivePhoto, getImageSrc } from "@/lib/post-image";
 import { uploadAudio, uploadDirect, uploadImage, uploadVideo, toAbsoluteUrl, toHttps } from "@/lib/upload";
 import { PUBLIC_API_URL } from "@/lib/api-fetch";
-import { getSessionUser, logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
+import { authErrorMessage, getSessionUser, logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
 import { collectManagedMediaIds, dateTimeLocalToIso, hasExternalMediaReferences, toDateTimeLocal } from "@/lib/post-media";
 import { splitMotionPhoto } from "@/lib/motion-photo";
 import { useExitAnimation } from "@/lib/use-exit-animation";
@@ -918,7 +918,7 @@ export function LoginModal({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.message || "登录失败");
+        setError(authErrorMessage(data, "登录失败"));
         return;
       }
       setSessionUser(data.user);
@@ -1000,6 +1000,12 @@ export function LoginModal({
             >
               {loading ? "登录中..." : "登录"}
             </button>
+            <a
+              href="/register"
+              className="block text-center text-xs text-wechat-link hover:underline"
+            >
+              注册新账号
+            </a>
           </div>
         </div>
       </div>

@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { PenLine, User, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
-import { setSessionUser } from "@/lib/auth";
+import { authErrorMessage, setSessionUser } from "@/lib/auth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
 
@@ -30,12 +31,12 @@ export default function AdminLogin() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.message || "登录失败");
+        setError(authErrorMessage(data, "登录失败"));
         return;
       }
 
       setSessionUser(data.user);
-      router.replace(data.user.role === "admin" ? "/admin" : "/admin/posts");
+      router.replace(data.user.role === "admin" ? "/admin" : data.user.canPublish ? "/admin/posts" : "/");
     } catch {
       setError("网络错误，请检查后端服务");
     } finally {
@@ -132,6 +133,12 @@ export default function AdminLogin() {
             )}
           </button>
         </form>
+
+        <div className="mt-4 flex items-center justify-center gap-3 text-xs text-adm-text-tertiary">
+          <Link href="/" className="transition-colors hover:text-adm-text">返回首页</Link>
+          <span>·</span>
+          <Link href="/register" className="transition-colors hover:text-adm-text">注册账号</Link>
+        </div>
 
         <p className="mt-6 text-center text-xs text-adm-text-tertiary">
           朋友圈风格个人博客管理系统

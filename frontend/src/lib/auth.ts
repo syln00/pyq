@@ -22,6 +22,21 @@ export interface CurrentUser {
   canPublish?: boolean;
 }
 
+export function authErrorMessage(data: { code?: string; message?: string } | null | undefined, fallback = "操作失败") {
+  switch (data?.code) {
+    case "ACCOUNT_PENDING":
+      return "账号已提交，正在等待管理员审核。审核通过后才能登录。";
+    case "ACCOUNT_REJECTED":
+      return "注册申请未通过审核，如有疑问请联系管理员。";
+    case "ACCOUNT_SUSPENDED":
+      return "账号已被停用，如有疑问请联系管理员。";
+    case "REGISTER_DISABLED":
+      return "管理员暂未开放新用户注册。";
+    default:
+      return data?.message || fallback;
+  }
+}
+
 let sessionUser: SessionUser | null = null;
 let refreshPromise: Promise<SessionUser | null> | null = null;
 
