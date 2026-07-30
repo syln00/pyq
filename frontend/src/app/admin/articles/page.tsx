@@ -7,6 +7,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import { toAbsoluteUrl } from "@/lib/upload";
 import { formatArticleTime } from "@/lib/mock-data";
 import { useSiteSettings } from "@/lib/site-settings-store";
+import { getSessionUser } from "@/lib/auth";
 
 interface ArticleListItem {
   id: string;
@@ -42,6 +43,7 @@ export default function AdminArticlesPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const defaultCover = useSiteSettings((s) => s.defaultCover);
+  const isAdmin = getSessionUser()?.role === "admin";
 
   const fetchArticles = useCallback(async (p: number) => {
     setLoading(true);
@@ -107,7 +109,7 @@ export default function AdminArticlesPage() {
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-adm-text">文章管理</h1>
+          <h1 className="text-xl font-bold text-adm-text">{isAdmin ? "文章管理" : "我的文章"}</h1>
           <p className="mt-0.5 text-sm text-adm-text-secondary">
             管理已发布与草稿文章
           </p>
@@ -214,7 +216,7 @@ export default function AdminArticlesPage() {
                           <ExternalLink className="h-4 w-4" />
                         </Link>
                       )}
-                      {article.status === "published" && (
+                      {isAdmin && article.status === "published" && (
                         <button
                           type="button"
                           onClick={() => handlePin(article.id, !!article.pinned)}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Pin, PinOff, Heart, MessageSquare } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api-fetch";
 import { Post, formatArticleTime, postPublishedAt } from "@/lib/mock-data";
+import { getSessionUser } from "@/lib/auth";
 import PostCard from "@/components/PostCard";
 import { PostCardSkeleton } from "@/components/Skeleton";
 import { useSiteSettings } from "@/lib/site-settings-store";
@@ -18,12 +19,13 @@ export default function AdminPosts() {
   const [permId, setPermId] = useState<string | null>(null);
 
   const token = getToken();
+  const isAdmin = getSessionUser()?.role === "admin";
   const fetchSettings = useSiteSettings((s) => s.fetchSettings);
 
   const fetchPosts = () => {
     if (!token) return;
     setLoading(true);
-    apiFetch("/posts?limit=100")
+    apiFetch(`/posts?type=moment&limit=100${isAdmin ? "" : "&mine=1"}`)
       .then((res) => res.json())
       .then((data) => {
         setPosts(data.data || []);
@@ -123,9 +125,9 @@ export default function AdminPosts() {
   return (
     <div className="space-y-3">
       <div>
-        <h2 className="text-lg font-bold text-adm-text">动态管理</h2>
+        <h2 className="text-lg font-bold text-adm-text">{isAdmin ? "动态管理" : "我的动态"}</h2>
         <p className="mt-1 text-sm text-adm-text-secondary">
-          共 {posts.length} 条动态（发布请使用顶栏「发表动态」按钮）
+          {isAdmin ? `共 ${posts.length} 条动态` : `我的动态共 ${posts.length} 条`}（发布请使用顶栏「发表动态」按钮）
         </p>
       </div>
 
@@ -143,6 +145,7 @@ export default function AdminPosts() {
                 permId={permId}
                 pinningId={pinningId}
                 deletingId={deletingId}
+                isAdmin={isAdmin}
                 onDelete={handleDelete}
                 onPin={handlePin}
                 onTogglePerm={handleTogglePermission}
@@ -161,6 +164,7 @@ function ActionBar({
   permId,
   pinningId,
   deletingId,
+  isAdmin,
   onDelete,
   onPin,
   onTogglePerm,
@@ -169,6 +173,7 @@ function ActionBar({
   permId: string | null;
   pinningId: string | null;
   deletingId: string | null;
+  isAdmin: boolean;
   onDelete: (id: string) => void;
   onPin: (id: string, pinned: boolean) => void;
   onTogglePerm: (id: string, field: "likesDisabled" | "commentsDisabled", current: boolean) => void;
@@ -205,8 +210,8 @@ function ActionBar({
         <MessageSquare className="h-3.5 w-3.5" />
         {post.commentsDisabled ? "评论已关" : "允许评论"}
       </button>
-      <div className="mx-1 h-4 w-px bg-adm-border" />
-      {!post.isAd && (
+      {isAdmin && <div className="mx-1 h-4 w-px bg-adm-border" />}
+      {isAdmin && !post.isAd && (
         <button
           onClick={() => onPin(post.id, !!post.pinned)}
           disabled={pinningId === post.id}

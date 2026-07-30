@@ -72,14 +72,17 @@ export default function PostDetail({ post }: PostDetailProps) {
   const isThisLoading = isThisActive && isLoading;
 
   useEffect(() => {
-    const user = getCurrentUser();
-    if (user?.isLoggedIn) {
-      setIsAdmin(true);
-      const sameEmail = post.author.email && user.email && post.author.email === user.email;
-      const sameNickname = post.author.nickname === user.nickname;
-      setCanEdit(sameEmail || sameNickname);
-    }
-  }, [post.author.email, post.author.nickname]);
+    const syncPermissions = () => {
+      const user = getCurrentUser();
+      const admin = user?.isLoggedIn && user.role === "admin";
+      const ownsPost = user?.isLoggedIn && user.id === post.author.id;
+      setIsAdmin(!!admin);
+      setCanEdit(!!(admin || ownsPost));
+    };
+    syncPermissions();
+    window.addEventListener("pyq-auth-changed", syncPermissions);
+    return () => window.removeEventListener("pyq-auth-changed", syncPermissions);
+  }, [post.author.id]);
 
   // 仅在挂载时（或 post.id 变化时）根据后端返回的 meLiked 推导 liked 初始值。
   // WP Ulike：meLiked 由后端基于 cookie visitorId/email/userId 判断，
@@ -196,7 +199,7 @@ export default function PostDetail({ post }: PostDetailProps) {
 
   const handlePin = async () => {
     const user = getCurrentUser();
-    if (!user?.isLoggedIn) return;
+    if (!user?.isLoggedIn || user.role !== "admin") return;
     const next = !pinned;
     try {
       const res = await fetch(`${API_URL}/posts/${post.id}/pin`, {

@@ -92,15 +92,18 @@ export default function PostCard({ post, index, onDelete }: PostCardProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-    const user = getCurrentUser();
-    if (user?.isLoggedIn) {
-      setIsAdmin(true);
-      const sameEmail = post.author.email && user.email && post.author.email === user.email;
-      const sameNickname = post.author.nickname === user.nickname;
-      setCanEdit(sameEmail || sameNickname);
-    }
-  }, [post.author.email, post.author.nickname]);
+    const syncPermissions = () => {
+      setMounted(true);
+      const user = getCurrentUser();
+      const admin = user?.isLoggedIn && user.role === "admin";
+      const ownsPost = user?.isLoggedIn && user.id === post.author.id;
+      setIsAdmin(!!admin);
+      setCanEdit(!!(admin || ownsPost));
+    };
+    syncPermissions();
+    window.addEventListener("pyq-auth-changed", syncPermissions);
+    return () => window.removeEventListener("pyq-auth-changed", syncPermissions);
+  }, [post.author.id]);
 
   // 长文折叠检测：纯文字字数超过配置阈值时显示展开/收起按钮
   // article 配文与 moment 正文一致，按字数折叠；无配文的文章不参与折叠
@@ -132,7 +135,7 @@ export default function PostCard({ post, index, onDelete }: PostCardProps) {
 
   const handlePin = async () => {
     const user = getCurrentUser();
-    if (!user?.isLoggedIn) return;
+    if (!user?.isLoggedIn || user.role !== "admin") return;
     const next = !pinned;
     try {
       const res = await fetch(`${API_URL}/posts/${post.id}/pin`, {

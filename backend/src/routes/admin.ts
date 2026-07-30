@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { body, param, validationResult } from "express-validator";
 import sequelize from "../config/database";
 import { User, Post, Comment, Like, SiteSetting } from "../models";
-import { authenticate, requireAdmin, AuthRequest } from "../middleware/auth";
+import { authenticate, requireAdmin, requirePublisher, AuthRequest } from "../middleware/auth";
 import { blacklistService } from "../services/blacklist-service";
 import { siteSettingTextDefaults } from "../models/SiteSetting";
 import { markManagedMediaPublic } from "../services/storage-service";
@@ -102,12 +102,12 @@ router.get("/users", authenticate, requireAdmin, async (_req: AuthRequest, res: 
 
 // GET /api/admin/posts - 管理端文章/动态列表（支持 type 过滤、分页）
 // type=article → 仅文章；type=moment → 仅动态；不传 → 全部（含广告）
-router.get("/posts", authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get("/posts", authenticate, requirePublisher, async (req: AuthRequest, res: Response) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
   const offset = (page - 1) * limit;
 
-  const where: any = {};
+  const where: any = req.user!.role === "admin" ? {} : { userId: req.user!.id, isAd: false };
   const typeParam = req.query.type as string;
   if (typeParam === "article" || typeParam === "moment") {
     where.type = typeParam;
