@@ -1054,17 +1054,53 @@ router.post(
     }
 
     let replyToUserId: string | null = null;
+    let replyTo = req.body.replyTo || null;
+    let replyToEmail = post.visibility === "public" ? req.body.replyToEmail || null : null;
     if (req.body.replyToId) {
-      const parent = await Comment.findOne({ where: { id: req.body.replyToId, postId: post.id }, attributes: ["userId"] });
-      replyToUserId = parent?.userId || null;
+      const parent = await Comment.findOne({
+        where: { id: req.body.replyToId, postId: post.id },
+        attributes: ["userId", "authorName", "email"],
+      });
+      if (!parent) {
+        res.status(400).json({ message: "被回复的评论不存在", code: "INVALID_REPLY_TARGET" });
+        return;
+      }
+      replyToUserId = parent.userId || null;
+      replyTo = parent.authorName;
+      replyToEmail = post.visibility === "public" ? parent.email : null;
+
+      if (parent.userId) {
+        const targetUser = await User.findByPk(parent.userId, {
+          attributes: ["id", "email", "nickname", "role", "accountStatus", "canPublish"],
+        });
+        const targetIsActive = targetUser?.role === "admin" || targetUser?.accountStatus === "active";
+        const targetCanView = targetUser && targetIsActive
+          ? await canViewPost(post, {
+              id: targetUser.id,
+              email: targetUser.email,
+              role: targetUser.role,
+              accountStatus: targetUser.accountStatus,
+              canPublish: targetUser.canPublish,
+            })
+          : false;
+        if (targetCanView) {
+          replyToEmail = targetUser!.email;
+          replyTo = targetUser!.nickname || parent.authorName;
+        } else if (post.visibility !== "public") {
+          replyToUserId = null;
+        }
+      }
+    } else if (post.visibility !== "public" && (req.body.replyTo || req.body.replyToEmail)) {
+      res.status(400).json({ message: "私密内容回复必须指定有效评论", code: "INVALID_REPLY_TARGET" });
+      return;
     }
     const comment = await Comment.create({
       postId: post.id,
       authorName,
       email,
       website: loggedUser?.website || req.body.website || null,
-      replyTo: req.body.replyTo || null,
-      replyToEmail: req.body.replyToEmail || null,
+      replyTo,
+      replyToEmail,
       replyToId: req.body.replyToId || null,
       content: req.body.content,
       ip,

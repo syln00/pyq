@@ -205,12 +205,15 @@ async function buildEmailVars(data: CommentNotifyData): Promise<{
   subject: string;
 }> {
   const setting = await SiteSetting.findByPk(1);
-  const owner = await User.findOne({ where: { role: "admin" } });
+  const siteOwner = await User.findOne({ where: { role: "admin" } });
 
   const siteName = setting?.siteName || "朋友圈博客";
   const domain = setting?.domain || "";
   // 查找动态的 shortId 和 type 用于构造链接（文章用 /articles/{id}，动态用 /moments/{shortId}）
-  const post = await Post.findByPk(data.postId, { attributes: ["shortId", "type", "id", "title"] });
+  const post = await Post.findByPk(data.postId, { attributes: ["shortId", "type", "id", "title", "userId"] });
+  const owner = post?.userId
+    ? await User.findByPk(post.userId, { attributes: ["nickname", "avatar", "email"] })
+    : siteOwner;
   const postIdForUrl = post?.shortId || data.postId;
   const postPath = post?.type === "article"
     ? `/articles/${post.id}`
@@ -268,25 +271,34 @@ export async function sendCommentNotification(data: CommentNotifyData): Promise<
     const templateHtml = setting?.emailTemplate || DEFAULT_EMAIL_TEMPLATE;
     const html = renderTemplate(templateHtml, vars);
 
-    const owner = await User.findOne({ where: { role: "admin" } });
-    const ownerEmail = owner?.email?.toLowerCase() || "";
+    const post = await Post.findByPk(data.postId, { attributes: ["userId"] });
+    const postAuthor = post?.userId
+      ? await User.findByPk(post.userId, { attributes: ["email", "role", "accountStatus"] })
+      : null;
+    const postAuthorActive = postAuthor?.role === "admin" || postAuthor?.accountStatus === "active";
+    const ownerEmail = postAuthor?.email?.toLowerCase() || "";
+    const ownerRecipient = postAuthor?.role === "admin"
+      ? ctx.to
+      : postAuthorActive
+        ? postAuthor?.email || ""
+        : "";
     const actorEmail = data.actorEmail?.toLowerCase() || "";
     const replyToEmail = data.replyToEmail?.toLowerCase() || "";
 
-    // 1. 通知博主（评论者自己是博主时跳过，避免自己通知自己）
-    if (actorEmail && actorEmail !== ownerEmail) {
+    // 1. 通知帖子作者（评论者自己是作者时跳过，避免自己通知自己）。
+    if (ownerRecipient && actorEmail && actorEmail !== ownerEmail) {
       await withRetry(() =>
         ctx.transporter.sendMail({
           from: ctx.from,
-          to: ctx.to,
+          to: ownerRecipient,
           subject,
           html,
         })
       );
-      console.log(`[email] 博主通知已发送至 ${ctx.to}: ${subject}`);
+      console.log(`[email] 帖子作者通知已发送至 ${ownerRecipient}: ${subject}`);
     }
 
-    // 2. 通知被回复者（回复场景）：排除自己回复自己、排除博主（已在上面通知过）
+    // 2. 通知被回复者：地址已由评论路由按 replyToId 和帖子 ACL 在服务端解析。
     if (replyToEmail && replyToEmail !== actorEmail && replyToEmail !== ownerEmail) {
       await withRetry(() =>
         ctx.transporter.sendMail({
