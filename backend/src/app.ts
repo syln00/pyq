@@ -66,7 +66,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 旧本地上传目录仅供非生产开发兼容；生产 R2-only 部署不会写入该目录。
+// 旧本地上传目录仅供非生产开发兼容；生产 S3 部署不会写入该目录。
 if (!process.env.VERCEL) {
   app.use("/uploads", express.static(path.join(__dirname, "../public/uploads")));
 }

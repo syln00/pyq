@@ -71,7 +71,7 @@ function readText(value: unknown, field: string, maxLength: number, required = f
   return text;
 }
 
-// GET /api/music — public R2-only background playlist.
+// GET /api/music — background playlist backed by managed private S3 media.
 router.get("/", async (_req: Request, res: Response) => {
   try {
     const { playlist, tracks } = await loadDefaultPlaylist();

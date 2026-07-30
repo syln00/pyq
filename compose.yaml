@@ -20,13 +20,13 @@ x-backend-environment: &backend-environment
   REVALIDATE_SECRET: ${REVALIDATE_SECRET:?Set REVALIDATE_SECRET in .env}
   CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
   STORAGE_DRIVER: s3
-  S3_ENDPOINT: http://minio:9000
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
   S3_PRESIGN_ENDPOINT: ${S3_PRESIGN_ENDPOINT:-http://s3.localhost}
-  S3_REGION: us-east-1
-  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-pyq-minio}
-  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
-  S3_BUCKET: ${MINIO_BUCKET:-pyq-media}
-  S3_FORCE_PATH_STYLE: "true"
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set S3_ACCESS_KEY_ID in .env}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY in .env}
+  S3_BUCKET: ${S3_BUCKET:-pyq-media}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
   S3_SIGNED_GET_TTL_SECONDS: ${S3_SIGNED_GET_TTL_SECONDS:-300}
 
 services:
@@ -82,7 +82,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pyq-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
-      MINIO_BUCKET: ${MINIO_BUCKET:-pyq-media}
+      MINIO_BUCKET: ${S3_BUCKET:-pyq-media}
     entrypoint: /bin/sh
     command:
       - -c

@@ -1,14 +1,14 @@
 "use client";
 
-import { Cloud, ExternalLink, ShieldCheck } from "lucide-react";
+import { Cloud, ShieldCheck } from "lucide-react";
 
 export default function AdminStorage() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-bold text-adm-text">Cloudflare R2 存储</h2>
+        <h2 className="text-lg font-bold text-adm-text">私有 S3 对象存储</h2>
         <p className="mt-1 text-sm text-adm-text-secondary">
-          网站所有图片、视频、音频和文件均通过 Cloudflare R2 存储。
+          图片、视频、音频和文件可存储在 MinIO、Cloudflare R2 或 NAS S3。
         </p>
       </div>
 
@@ -18,9 +18,9 @@ export default function AdminStorage() {
             <Cloud className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="font-semibold text-adm-text">Cloudflare R2</h3>
+            <h3 className="font-semibold text-adm-text">Provider-neutral S3</h3>
             <p className="mt-1 text-sm leading-6 text-adm-text-secondary">
-              R2 凭据仅保存在后端 Vercel 项目的环境变量中，不会显示、保存或修改到网站数据库。
+              S3 凭据只保存在后端环境变量中。数据库保存对象键和稳定媒体 ID，不保存厂商域名。
             </p>
           </div>
         </div>
@@ -31,27 +31,22 @@ export default function AdminStorage() {
             后端必需环境变量
           </p>
           <code className="mt-3 block whitespace-pre-wrap text-xs leading-6 text-adm-text-secondary">
-{`R2_ACCOUNT_ID
-R2_ACCESS_KEY_ID
-R2_SECRET_ACCESS_KEY
-R2_BUCKET
-R2_PUBLIC_URL
-R2_ENDPOINT（可选）`}
+{`STORAGE_DRIVER=s3
+S3_ENDPOINT
+S3_PRESIGN_ENDPOINT
+S3_REGION
+S3_ACCESS_KEY_ID
+S3_SECRET_ACCESS_KEY
+S3_BUCKET
+S3_FORCE_PATH_STYLE
+S3_SIGNED_GET_TTL_SECONDS`}
           </code>
         </div>
 
         <p className="mt-4 text-xs leading-5 text-adm-text-tertiary">
-          文件上传会由浏览器取得受控的短期上传地址后直接传入 R2，不经过 Vercel 函数，因此不受函数请求体大小限制。
-          请同时在 R2 Bucket 配置允许本站域名 PUT 的 CORS 规则。
+          Bucket 必须保持私有。浏览器通过短期签名地址直传，读取时由本站检查帖子权限后跳转到短时 GET 地址。
+          `S3_ENDPOINT` 可使用内网地址，`S3_PRESIGN_ENDPOINT` 必须是浏览器可访问地址；切换供应商时保留原 objectKey 即可。
         </p>
-        <a
-          href="https://developers.cloudflare.com/r2/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-adm-primary hover:underline"
-        >
-          查看 Cloudflare R2 配置文档 <ExternalLink className="h-3.5 w-3.5" />
-        </a>
       </section>
     </div>
   );

@@ -125,7 +125,7 @@ export default function AdminMusic() {
 
   return <div className="mx-auto max-w-4xl p-4 sm:p-6">
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-      <div><h1 className="text-xl font-bold text-adm-text">R2 音乐歌单</h1><p className="mt-1 text-sm text-adm-text-tertiary">浏览器直传 Cloudflare R2；前台音频直接请求 R2 公网地址，不经过 Vercel 函数。</p></div>
+      <div><h1 className="text-xl font-bold text-adm-text">S3 音乐歌单</h1><p className="mt-1 text-sm text-adm-text-tertiary">浏览器预签名直传私有 S3；播放时通过站内权限检查获取短时签名地址。</p></div>
       <button onClick={() => void savePlaylist()} disabled={saving} className="flex items-center gap-2 rounded-lg bg-adm-primary px-4 py-2 text-sm font-medium text-adm-primary-text disabled:opacity-50"><Save className="h-4 w-4" />保存歌单</button>
     </div>
     {message && <p className="mb-4 rounded-lg bg-adm-input px-3 py-2 text-sm text-adm-text-secondary">{message}</p>}
