@@ -1,5 +1,6 @@
+import { createHash } from "crypto";
 import { v4 as uuidv4 } from "uuid";
-import { Op } from "sequelize";
+import { Op, UniqueConstraintError } from "sequelize";
 import { Media, getMediaCategory, type MediaKind } from "../models";
 import type { StorageType } from "../models/Media";
 import {
@@ -8,6 +9,7 @@ import {
   deleteObject,
   extractObjectKey,
   isS3Ready,
+  statObject,
   uploadObject,
 } from "./s3-service";
 
@@ -25,6 +27,22 @@ export async function markManagedMediaPublic(value: unknown) {
   const ids = managedMediaIds(value);
   if (ids.length) await Media.update({ accessClass: "public_asset" }, { where: { id: { [Op.in]: ids } } });
   return ids;
+}
+
+export async function findReusableMedia(
+  uploaderId: string,
+  contentHash: string,
+  kind: MediaKind,
+  size?: number
+) {
+  return Media.findOne({
+    where: {
+      uploaderId,
+      contentHash,
+      kind,
+      ...(size === undefined ? {} : { size }),
+    },
+  });
 }
 
 function requireS3() {
@@ -50,8 +68,32 @@ export async function storeFileAndRecordMedia(
   originalName: string,
   mimeType: string,
   uploaderId: string,
-  prefix = "media"
-): Promise<{ url: string; objectKey: string; storageType: StorageType; mediaId: string }> {
+  prefix = "media",
+  options: { deduplicate?: boolean } = {}
+): Promise<{ url: string; objectKey: string; storageType: StorageType; mediaId: string; deduplicated: boolean }> {
+  const kind = getMediaCategory(mimeType) as MediaKind;
+  const shouldDeduplicate = options.deduplicate !== false;
+  const contentHash = shouldDeduplicate ? createHash("sha256").update(buffer).digest("hex") : null;
+  if (contentHash) {
+    const existing = await findReusableMedia(uploaderId, contentHash, kind, buffer.length);
+    if (existing) {
+      let existingKey = existing.objectKey || extractObjectKey(existing.url);
+      const existingObject = existingKey ? await statObject(existingKey) : null;
+      if (!existingObject) {
+        existingKey = existingKey || buildObjectKey(prefix, originalName);
+        await uploadObject(buffer, existingKey, mimeType);
+        await existing.update({ objectKey: existingKey, storageType: "s3", size: buffer.length, mimeType });
+      }
+      return {
+        url: mediaContentPath(existing.id),
+        objectKey: existingKey,
+        storageType: "s3",
+        mediaId: existing.id,
+        deduplicated: true,
+      };
+    }
+  }
+
   const mediaId = uuidv4();
   const { objectKey, storageType } = await storeBuffer(buffer, originalName, mimeType, prefix);
   const url = mediaContentPath(mediaId);
@@ -61,18 +103,31 @@ export async function storeFileAndRecordMedia(
       filename: originalName,
       url,
       objectKey,
+      contentHash,
       storageType,
       accessClass: "owner_only",
       mimeType,
-      kind: getMediaCategory(mimeType) as MediaKind,
+      kind,
       size: buffer.length,
       uploaderId,
     });
   } catch (error) {
     await deleteObject(objectKey);
+    if (contentHash && error instanceof UniqueConstraintError) {
+      const existing = await findReusableMedia(uploaderId, contentHash, kind, buffer.length);
+      if (existing) {
+        return {
+          url: mediaContentPath(existing.id),
+          objectKey: existing.objectKey || extractObjectKey(existing.url),
+          storageType: "s3",
+          mediaId: existing.id,
+          deduplicated: true,
+        };
+      }
+    }
     throw error;
   }
-  return { url, objectKey, storageType, mediaId };
+  return { url, objectKey, storageType, mediaId, deduplicated: false };
 }
 
 export async function createPresignedUpload(

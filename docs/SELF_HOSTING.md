@@ -79,6 +79,12 @@ docker compose logs --tail=100 db-init minio-init backend frontend caddy
 
 打开 `SITE_URL`，使用初始管理员登录。注册默认关闭，可在后台站点设置中开启。开启后新账号仍需管理员审核。
 
+如果升级前已经上传过媒体，可以选择运行一次哈希回填，让后续重复上传复用已有媒体。该命令只填写 SHA-256 并报告已有重复项，不会删除或合并文件：
+
+```bash
+docker compose run --rm backend node dist/scripts/backfill-media-hashes.js
+```
+
 ## 5. 数据持久化
 
 Compose 使用以下命名卷：
@@ -166,4 +172,3 @@ docker compose logs --tail=200 minio
 - 上传 PUT CORS 失败：检查 MinIO/R2 的 Allowed Origin 是否包含 `SITE_URL`。
 - 上传签名地址不可达：检查 `S3_PRESIGN_ENDPOINT` 是浏览器可访问地址，而不是 Docker 内部服务名。
 - 媒体 404：先确认用户拥有帖子查看权限，再运行 `./scripts/check-media-integrity.sh`。
-

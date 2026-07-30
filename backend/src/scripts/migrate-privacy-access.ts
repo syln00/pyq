@@ -32,12 +32,12 @@ async function addColumn(table: string, column: string, definition: string) {
   return true;
 }
 
-async function addIndex(table: string, name: string, columns: string) {
+async function addIndex(table: string, name: string, columns: string, unique = false) {
   if (await indexExists(table, name)) {
     console.log(`Already present: ${table}.${name}`);
     return;
   }
-  await sequelize.query(`CREATE INDEX ${name} ON ${table} (${columns})`);
+  await sequelize.query(`CREATE ${unique ? "UNIQUE " : ""}INDEX ${name} ON ${table} (${columns})`);
   console.log(`Applied: ${table}.${name}`);
 }
 
@@ -70,7 +70,16 @@ export async function migratePrivacyAccess() {
   await addIndex("posts", "posts_visibility_status_published_at", "visibility, status, published_at");
 
   await addColumn("media", "object_key", "VARCHAR(600) NOT NULL DEFAULT ''");
+  await addColumn("media", "content_hash", "VARCHAR(64) NULL");
   await addColumn("media", "access_class", "VARCHAR(20) NOT NULL DEFAULT 'owner_only'");
+  await addIndex(
+    "media",
+    "media_uploader_hash_kind_unique",
+    "uploader_id, content_hash, kind",
+    true
+  );
+
+  await addColumn("upload_intents", "deduplicate", "TINYINT(1) NOT NULL DEFAULT 1");
 
   await addColumn("comments", "user_id", "CHAR(36) NULL");
   await addColumn("comments", "reply_to_user_id", "CHAR(36) NULL");

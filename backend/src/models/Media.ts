@@ -14,6 +14,8 @@ interface MediaAttributes {
   storageType: StorageType;
   /** S3 provider-neutral object key. New records must use this instead of parsing URL. */
   objectKey: string;
+  /** SHA-256 hex digest used for per-uploader deduplication. */
+  contentHash: string | null;
   accessClass: MediaAccessClass;
   mimeType: string;
   kind: MediaKind;
@@ -37,7 +39,7 @@ interface MediaAttributes {
 
 interface MediaCreationAttributes extends Optional<
   MediaAttributes,
-  "id" | "createdAt" | "updatedAt" | "livePhotoVideo" | "livePhotoImage" | "objectKey" | "accessClass"
+  "id" | "createdAt" | "updatedAt" | "livePhotoVideo" | "livePhotoImage" | "objectKey" | "contentHash" | "accessClass"
 > {}
 
 class Media
@@ -49,6 +51,7 @@ class Media
   declare url: string;
   declare storageType: StorageType;
   declare objectKey: string;
+  declare contentHash: string | null;
   declare accessClass: MediaAccessClass;
   declare mimeType: string;
   declare kind: MediaKind;
@@ -84,6 +87,11 @@ Media.init(
       type: DataTypes.STRING(600),
       allowNull: false,
       defaultValue: "",
+    },
+    contentHash: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      defaultValue: null,
     },
     accessClass: {
       type: DataTypes.STRING(20),
@@ -132,6 +140,13 @@ Media.init(
     sequelize,
     tableName: "media",
     underscored: true,
+    indexes: [
+      {
+        name: "media_uploader_hash_kind_unique",
+        unique: true,
+        fields: ["uploader_id", "content_hash", "kind"],
+      },
+    ],
   }
 );
 

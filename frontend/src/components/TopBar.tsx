@@ -1119,8 +1119,8 @@ export function PublishModal({
 
   const createLivePhotoPair = async (imageFile: File, videoFile: File) => {
     const [image, video] = await Promise.all([
-      uploadDirect(imageFile, token, "image"),
-      uploadDirect(videoFile, token, "video"),
+      uploadDirect(imageFile, token, "image", { deduplicate: false }),
+      uploadDirect(videoFile, token, "video", { deduplicate: false }),
     ]);
     const response = await fetch(`${API_URL}/media/live-photo`, {
       method: "POST",

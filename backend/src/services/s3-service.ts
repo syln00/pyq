@@ -7,6 +7,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { createHash } from "crypto";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 
@@ -124,6 +125,25 @@ export async function downloadObject(objectKey: string, maxBytes?: number): Prom
     chunks.push(buffer);
   }
   return Buffer.concat(chunks);
+}
+
+/** Stream an object through SHA-256 without buffering the whole file in memory. */
+export async function hashObject(
+  objectKey: string,
+  maxBytes?: number
+): Promise<{ contentHash: string; size: number }> {
+  const { client, cfg } = getClients();
+  const response = await client.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: objectKey }));
+  if (!response.Body) throw new Error("S3 对象为空");
+  const hash = createHash("sha256");
+  let size = 0;
+  for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+    const buffer = Buffer.from(chunk);
+    size += buffer.length;
+    if (maxBytes !== undefined && size > maxBytes) throw new Error("S3 对象超过允许的读取大小");
+    hash.update(buffer);
+  }
+  return { contentHash: hash.digest("hex"), size };
 }
 
 export async function deleteObject(objectKey: string): Promise<boolean> {

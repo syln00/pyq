@@ -5,19 +5,21 @@
  */
 import { Router, Request, Response } from "express";
 import path from "path";
-import { Op } from "sequelize";
+import { Op, UniqueConstraintError } from "sequelize";
 import { param, validationResult } from "express-validator";
 import { v4 as uuidv4 } from "uuid";
 import { CatalogItem, Media, MusicTrack, Post, PostMedia, UploadIntent, User, getMediaCategory, type MediaKind } from "../models";
 import { authenticate, authenticateOptional, requirePublisher, AuthRequest } from "../middleware/auth";
-import { deleteStoredFile, isS3Ready, mediaContentPath } from "../services/storage-service";
+import { deleteStoredFile, findReusableMedia, isS3Ready, mediaContentPath } from "../services/storage-service";
 import {
   buildObjectKey,
   buildStagingKey,
   createPresignedUploadForKey,
   createPresignedDownload,
+  deleteObject,
   downloadObject,
   extractObjectKey,
+  hashObject,
   promoteObject,
   statObject,
 } from "../services/s3-service";
@@ -54,6 +56,14 @@ const DIRECT_UPLOAD_RULES = {
 } as const;
 
 type DirectUploadKind = keyof typeof DIRECT_UPLOAD_RULES;
+
+function normalizeSha256(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/i.test(value)) {
+    throw new Error("文件哈希无效");
+  }
+  return value.toLowerCase();
+}
 
 function getDirectUploadRule(kind: unknown, filename: string, mimeType: unknown) {
   if (typeof kind !== "string" || !(kind in DIRECT_UPLOAD_RULES)) {
@@ -164,9 +174,9 @@ router.get(
 );
 
 // POST /api/media/presign — 创建受控的 S3 暂存上传
-// body: { filename: string, mimeType: string, kind: "image"|"video"|"audio"|"file" }
+// body: { filename, mimeType, kind, size, contentHash?, deduplicate? }
 router.post("/presign", authenticate, requirePublisher, async (req: AuthRequest, res: Response) => {
-  const { filename, mimeType, kind } = req.body || {};
+  const { filename, mimeType, kind, size, contentHash: rawContentHash, deduplicate } = req.body || {};
   if (!isS3Ready()) {
     res.status(400).json({ message: "S3 存储未配置" });
     return;
@@ -174,6 +184,26 @@ router.post("/presign", authenticate, requirePublisher, async (req: AuthRequest,
 
   try {
     const { kind: approvedKind, rule } = getDirectUploadRule(kind, filename, mimeType);
+    const uploadSize = Number(size);
+    if (!Number.isSafeInteger(uploadSize) || uploadSize <= 0 || uploadSize > rule.maxSize) {
+      throw new Error(`文件大小无效或超过 ${(rule.maxSize / 1024 / 1024).toFixed(0)}MB 限制`);
+    }
+    const shouldDeduplicate = deduplicate !== false;
+    const contentHash = shouldDeduplicate ? normalizeSha256(rawContentHash) : null;
+    if (contentHash) {
+      const existing = await findReusableMedia(req.user!.id, contentHash, approvedKind as MediaKind, uploadSize);
+      if (existing) {
+        const existingKey = existing.objectKey || extractObjectKey(existing.url);
+        const existingObject = existingKey ? await statObject(existingKey) : null;
+        if (existingObject?.size === uploadSize) {
+          res.json({
+            existingMedia: { ...formatMedia(existing), deduplicated: true },
+            maxSize: rule.maxSize,
+          });
+          return;
+        }
+      }
+    }
     const intent = await UploadIntent.create({
       uploaderId: req.user!.id,
       kind: approvedKind as MediaKind,
@@ -182,6 +212,7 @@ router.post("/presign", authenticate, requirePublisher, async (req: AuthRequest,
       maxSize: rule.maxSize,
       stagingKey: "pending",
       finalKey: "pending",
+      deduplicate: shouldDeduplicate,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
     const stagingKey = buildStagingKey(intent.id, intent.filename);
@@ -229,26 +260,71 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
       return;
     }
 
+    let contentHash: string | null = null;
+    if (intent.deduplicate) {
+      const hashed = await hashObject(intent.stagingKey, Number(intent.maxSize));
+      if (hashed.size !== object.size) {
+        res.status(409).json({ message: "上传对象在校验期间发生变化，请重新上传" });
+        return;
+      }
+      contentHash = hashed.contentHash;
+      const existing = await findReusableMedia(intent.uploaderId, contentHash, intent.kind, object.size);
+      if (existing) {
+        const existingKey = existing.objectKey || extractObjectKey(existing.url);
+        const existingObject = existingKey ? await statObject(existingKey) : null;
+        if (existingKey && existingObject?.size === object.size) {
+          await deleteObject(intent.stagingKey);
+        } else {
+          const repairKey = existingKey || intent.finalKey;
+          await promoteObject(intent.stagingKey, repairKey, intent.mimeType);
+          await existing.update({
+            objectKey: repairKey,
+            storageType: "s3",
+            mimeType: intent.mimeType,
+            size: object.size,
+          });
+        }
+        await intent.update({ status: "confirmed", confirmedAt: new Date() });
+        res.status(200).json({ ...formatMedia(existing), deduplicated: true });
+        return;
+      }
+    }
+
     const objectKey = await promoteObject(intent.stagingKey, intent.finalKey, intent.mimeType);
     const mediaId = uuidv4();
     const url = mediaContentPath(mediaId);
-    const media = await Media.create({
-      id: mediaId,
-      filename: intent.filename,
-      url,
-      objectKey,
-      storageType: "s3",
-      accessClass: "owner_only",
-      mimeType: intent.mimeType,
-      kind: intent.kind,
-      size: object.size,
-      uploaderId: intent.uploaderId,
-    });
+    let media: Media;
+    try {
+      media = await Media.create({
+        id: mediaId,
+        filename: intent.filename,
+        url,
+        objectKey,
+        contentHash,
+        storageType: "s3",
+        accessClass: "owner_only",
+        mimeType: intent.mimeType,
+        kind: intent.kind,
+        size: object.size,
+        uploaderId: intent.uploaderId,
+      });
+    } catch (error) {
+      await deleteObject(objectKey);
+      if (contentHash && error instanceof UniqueConstraintError) {
+        const existing = await findReusableMedia(intent.uploaderId, contentHash, intent.kind, object.size);
+        if (existing) {
+          await intent.update({ status: "confirmed", confirmedAt: new Date() });
+          res.status(200).json({ ...formatMedia(existing), deduplicated: true });
+          return;
+        }
+      }
+      throw error;
+    }
     await intent.update({ status: "confirmed", confirmedAt: new Date() });
     const full = await Media.findByPk(media.id, {
       include: [{ model: User, as: "uploader", attributes: ["id", "username", "nickname"] }],
     });
-    res.status(201).json(formatMedia(full));
+    res.status(201).json({ ...formatMedia(full), deduplicated: false });
   } catch (err: any) {
     res.status(500).json({ message: err.message || "登记媒体记录失败" });
   }

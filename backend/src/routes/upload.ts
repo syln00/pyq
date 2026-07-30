@@ -167,8 +167,8 @@ router.post(
         const videoName = `${path.basename(req.file.originalname, path.extname(req.file.originalname))}.mp4`;
 
         const [imageResult, videoResult] = await Promise.all([
-          storeFileAndRecordMedia(extracted.image, imageName, extracted.imageMime, req.user!.id),
-          storeFileAndRecordMedia(extracted.video, videoName, extracted.videoMime, req.user!.id),
+          storeFileAndRecordMedia(extracted.image, imageName, extracted.imageMime, req.user!.id, "media", { deduplicate: false }),
+          storeFileAndRecordMedia(extracted.video, videoName, extracted.videoMime, req.user!.id, "media", { deduplicate: false }),
         ]);
 
         res.json({
@@ -276,8 +276,8 @@ router.post("/motion-photo/confirm", authenticate, requirePublisher, async (req:
 
     if (extracted) {
       const [imageResult, videoResult] = await Promise.all([
-        storeFileAndRecordMedia(extracted.image, `${baseName}.jpg`, extracted.imageMime, req.user!.id),
-        storeFileAndRecordMedia(extracted.video, `${baseName}.mp4`, extracted.videoMime, req.user!.id),
+        storeFileAndRecordMedia(extracted.image, `${baseName}.jpg`, extracted.imageMime, req.user!.id, "media", { deduplicate: false }),
+        storeFileAndRecordMedia(extracted.video, `${baseName}.mp4`, extracted.videoMime, req.user!.id, "media", { deduplicate: false }),
       ]);
       // 原始合并文件不再需要，清理掉避免占用存储空间
       deleteObject(key).catch(() => {});

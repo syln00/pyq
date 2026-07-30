@@ -12,6 +12,8 @@ export type DirectUploadPhase = "presign" | "put" | "confirm" | "network";
 export interface DirectUploadOptions {
   signal?: AbortSignal;
   onProgress?: (percent: number) => void;
+  /** Live-photo components must remain distinct because their pairing is stored on Media. */
+  deduplicate?: boolean;
 }
 
 export interface UploadedMedia {
@@ -23,6 +25,17 @@ export interface UploadedMedia {
   size: number;
   category: "image" | "video" | "audio" | "file";
   kind: MediaKind;
+  deduplicated?: boolean;
+}
+
+const CLIENT_HASH_MAX_BYTES = 25 * 1024 * 1024;
+
+async function fileSha256(file: File, signal?: AbortSignal): Promise<string | null> {
+  if (file.size > CLIENT_HASH_MAX_BYTES || !globalThis.crypto?.subtle) return null;
+  if (signal?.aborted) throw new DOMException("Upload aborted", "AbortError");
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  if (signal?.aborted) throw new DOMException("Upload aborted", "AbortError");
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** A safe, user-displayable failure. It deliberately never retains a presigned URL. */
@@ -94,6 +107,16 @@ export async function uploadDirect(
 ): Promise<UploadedMedia> {
   const mimeType = normalizedMimeType(file);
   const apiUrl = getApiUrl();
+  const shouldDeduplicate = options.deduplicate !== false;
+  let contentHash: string | null = null;
+  if (shouldDeduplicate) {
+    try {
+      contentHash = await fileSha256(file, options.signal);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      // Server-side streaming verification still deduplicates when browser hashing is unavailable.
+    }
+  }
   let presign: Response;
   try {
     presign = await fetch(`${apiUrl}/media/presign`, {
@@ -102,7 +125,14 @@ export async function uploadDirect(
         "Content-Type": "application/json",
       },
       credentials: "include",
-      body: JSON.stringify({ filename: file.name, mimeType, kind }),
+      body: JSON.stringify({
+        filename: file.name,
+        mimeType,
+        kind,
+        size: file.size,
+        contentHash,
+        deduplicate: shouldDeduplicate,
+      }),
       signal: options.signal,
     });
   } catch {
@@ -112,7 +142,11 @@ export async function uploadDirect(
     throw new DirectUploadError("presign", await readError(presign, "获取上传地址失败"), presign.status);
   }
 
-  const { intentId, uploadUrl, maxSize } = await presign.json();
+  const { intentId, uploadUrl, maxSize, existingMedia } = await presign.json();
+  if (existingMedia?.id && existingMedia?.url) {
+    options.onProgress?.(100);
+    return existingMedia as UploadedMedia;
+  }
   if (!intentId || !uploadUrl) throw new DirectUploadError("presign", "上传服务返回了无效的上传地址。");
   if (Number(maxSize) > 0 && file.size > Number(maxSize)) {
     throw new DirectUploadError("presign", `文件大小超过 ${(Number(maxSize) / 1024 / 1024).toFixed(0)}MB 限制。`);

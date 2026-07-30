@@ -13,6 +13,7 @@ interface UploadIntentAttributes {
   maxSize: number;
   stagingKey: string;
   finalKey: string;
+  deduplicate: boolean;
   status: UploadIntentStatus;
   expiresAt: Date;
   confirmedAt: Date | null;
@@ -22,7 +23,7 @@ interface UploadIntentAttributes {
 
 interface UploadIntentCreationAttributes extends Optional<
   UploadIntentAttributes,
-  "id" | "status" | "confirmedAt" | "createdAt" | "updatedAt"
+  "id" | "deduplicate" | "status" | "confirmedAt" | "createdAt" | "updatedAt"
 > {}
 
 class UploadIntent
@@ -37,6 +38,7 @@ class UploadIntent
   declare maxSize: number;
   declare stagingKey: string;
   declare finalKey: string;
+  declare deduplicate: boolean;
   declare status: UploadIntentStatus;
   declare expiresAt: Date;
   declare confirmedAt: Date | null;
@@ -80,6 +82,11 @@ UploadIntent.init(
     finalKey: {
       type: DataTypes.STRING(600),
       allowNull: false,
+    },
+    deduplicate: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
     },
     status: {
       type: DataTypes.STRING(20),

@@ -18,6 +18,7 @@
     "db:migrate-r2-music-fields": "ts-node src/scripts/migrate-r2-music-fields.ts",
     "db:migrate-privacy-access": "ts-node src/scripts/migrate-privacy-access.ts",
     "storage:check": "ts-node src/scripts/check-media-integrity.ts",
+    "storage:backfill-hashes": "ts-node src/scripts/backfill-media-hashes.ts",
     "music:migrate-r2": "ts-node src/scripts/migrate-r2-music.ts"
   },
   "keywords": [],
