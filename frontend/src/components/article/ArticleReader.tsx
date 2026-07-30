@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { Heart, Share2, MessageCircle, ExternalLink } from "lucide-react";
-import { Post, formatArticleTime } from "@/lib/mock-data";
+import { Post, formatArticleTime, postPublishedAt } from "@/lib/mock-data";
 import { resolveAvatar } from "@/lib/avatar";
 import { getCurrentUser, authFetchHeaders } from "@/lib/auth";
 import { useSiteSettings } from "@/lib/site-settings-store";
@@ -187,7 +187,7 @@ export default function ArticleReader({ post }: ArticleReaderProps) {
           <Link href="/" className="text-wechat-link hover:underline">
             {siteName}
           </Link>{" "}
-          {formatArticleTime(post.createdAt)}
+          {formatArticleTime(postPublishedAt(post))}
           {post.region ? ` ${post.region}` : ""}
         </span>
       </div>

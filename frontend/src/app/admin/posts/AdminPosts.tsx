@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Pin, PinOff, Heart, MessageSquare } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api-fetch";
-import { Post } from "@/lib/mock-data";
+import { Post, formatArticleTime, postPublishedAt } from "@/lib/mock-data";
 import PostCard from "@/components/PostCard";
 import { PostCardSkeleton } from "@/components/Skeleton";
 import { useSiteSettings } from "@/lib/site-settings-store";
@@ -175,6 +175,10 @@ function ActionBar({
 }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 border-t border-adm-border bg-adm-card-hover/40 px-4 py-2.5">
+      <div className="mr-auto flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-adm-text-tertiary">
+        <span>发布 {formatArticleTime(postPublishedAt(post))}</span>
+        <span>录入 {formatArticleTime(post.createdAt)}</span>
+      </div>
       <button
         onClick={() => onTogglePerm(post.id, "likesDisabled", !!post.likesDisabled)}
         disabled={permId === post.id}

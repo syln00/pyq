@@ -120,12 +120,20 @@ export interface Post {
   likesDisabled?: boolean;
   commentsDisabled?: boolean;
   createdAt: string;
+  /** 用户选择的展示发布时间；createdAt 仅用于审计。 */
+  publishedAt?: string;
+  visibility?: "public" | "authenticated" | "selected";
+  visibleUserIds?: string[];
   likes: Array<{ name: string; email?: string }>;
   comments: Comment[];
   /** 当前访客是否已点赞（基于 IP/email/userId 判断，跨浏览器同 IP 一致） */
   meLiked?: boolean;
   /** 阅读量（文章详情页客户端 fetch ?view=1 时递增） */
   viewCount?: number;
+}
+
+export function postPublishedAt(post: Pick<Post, "publishedAt" | "createdAt">) {
+  return post.publishedAt || post.createdAt;
 }
 
 // Cravatar avatar URL. Each nickname gets a stable MD5 hash so Cravatar returns

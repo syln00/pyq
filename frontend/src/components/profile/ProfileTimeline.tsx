@@ -178,7 +178,10 @@ export default function ProfileTimeline({
       ad && baseTimelinePosts.length >= AD_POSITION
         ? (() => {
             const refPost = baseTimelinePosts[AD_POSITION - 1];
-            const adWithTime: Post = { ...ad, createdAt: refPost.createdAt };
+            const adWithTime: Post = {
+              ...ad,
+              publishedAt: refPost.publishedAt || refPost.createdAt,
+            };
             return [
               ...baseTimelinePosts.slice(0, AD_POSITION),
               adWithTime,

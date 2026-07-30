@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Music, Pause, Play } from "lucide-react";
-import { Post, PostMusic, formatDetailTime, getPostSourceLabel } from "@/lib/mock-data";
+import { Post, PostMusic, formatDetailTime, getPostSourceLabel, postPublishedAt } from "@/lib/mock-data";
 import { resolveAvatar } from "@/lib/avatar";
 import { normalizeImages } from "@/lib/post-image";
 import { toAbsoluteUrl, toHttps } from "@/lib/upload";
@@ -387,7 +387,7 @@ export default function PostDetail({ post }: PostDetailProps) {
         {/* Time + action */}
         <div className="mt-2 flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-[13px] text-wechat-time md:text-[14px]">
-            <time>{formatDetailTime(post.createdAt)}</time>
+            <time>{formatDetailTime(postPublishedAt(post))}</time>
             {post.isAd && (
               <span className="rounded-[4px] bg-[#ececec] px-2 py-0.5 text-[11px] font-medium text-[#9a9a9a] dark:bg-white/[0.1]">
                 广告

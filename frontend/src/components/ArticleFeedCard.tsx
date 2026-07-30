@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Post, formatRelativeTime } from "@/lib/mock-data";
+import { Post, formatRelativeTime, postPublishedAt } from "@/lib/mock-data";
 import { toAbsoluteUrl } from "@/lib/upload";
 import { useSiteSettings } from "@/lib/site-settings-store";
 
@@ -44,7 +44,7 @@ export default function ArticleFeedCard({ post }: ArticleFeedCardProps) {
       {/* 封面图 + 时间 */}
       <div className="flex items-center justify-between gap-3">
         <span className="text-[12px] text-wechat-time">
-          {formatRelativeTime(post.createdAt)}
+          {formatRelativeTime(postPublishedAt(post))}
         </span>
         {coverUrl && (
           <div className="h-14 w-20 shrink-0 overflow-hidden rounded">

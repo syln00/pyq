@@ -27,6 +27,7 @@ interface RecentPost {
   id: string;
   content: string;
   createdAt: string;
+  publishedAt: string;
   pinned: boolean;
   author: string;
 }
@@ -465,7 +466,9 @@ export default function AdminDashboard() {
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-medium text-adm-text">{post.author}</span>
                       {post.pinned && <Pin className="h-3 w-3 text-adm-primary" />}
-                      <span className="text-xs text-adm-text-tertiary">{timeAgo(post.createdAt)}</span>
+                      <span className="text-xs text-adm-text-tertiary">
+                        发布 {timeAgo(post.publishedAt)} · 录入 {timeAgo(post.createdAt)}
+                      </span>
                     </div>
                     <p className="mt-0.5 line-clamp-1 text-xs text-adm-text-secondary">
                       {decodeHtmlEntities(post.content) || "(无文字内容)"}

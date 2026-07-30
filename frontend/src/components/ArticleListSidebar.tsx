@@ -18,6 +18,7 @@ interface ArticleListItem {
   category?: string;
   cover?: string;
   createdAt: string;
+  publishedAt?: string;
 }
 
 function formatDate(dateStr: string): string {
@@ -137,7 +138,7 @@ export default function ArticleListSidebar() {
                           </p>
                           <div className="mt-0.5 flex items-center gap-1.5">
                             <span className="text-[11px] text-wechat-time/70">
-                              {formatDate(article.createdAt)}
+                              {formatDate(article.publishedAt || article.createdAt)}
                             </span>
                             {article.category && (
                               <span className="rounded bg-wechat-bubble px-1 py-0.5 text-[10px] text-wechat-time dark:bg-white/5">

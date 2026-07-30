@@ -291,6 +291,9 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response) =>
   if (categoryParam) {
     filters.category = categoryParam;
   }
+  if (req.query.publicOnly === "1") {
+    filters.visibility = "public";
+  }
   const requestedUserId = req.query.userId;
   if (typeof requestedUserId === "string" && requestedUserId) {
     filters.userId = requestedUserId;

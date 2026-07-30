@@ -59,12 +59,12 @@ export interface TimeGroup<T> {
   items: T[];
 }
 
-export function groupByTime<T extends { createdAt: string }>(items: T[]): TimeGroup<T>[] {
+export function groupByTime<T extends { createdAt: string; publishedAt?: string }>(items: T[]): TimeGroup<T>[] {
   const groups: TimeGroup<T>[] = [];
   let current: TimeGroup<T> | null = null;
 
   for (const item of items) {
-    const info = getTimeLabel(item.createdAt);
+    const info = getTimeLabel(item.publishedAt || item.createdAt);
     if (!current || current.key !== info.key) {
       current = {
         key: info.key,

@@ -118,8 +118,8 @@ export async function GET() {
 
     // 动态订阅关闭时只请求文章，避免拉取无用的 moment 数据
     const postsUrl = rssIncludeMoments
-      ? `${API_URL}/posts?limit=50`
-      : `${API_URL}/posts?type=article&limit=50`;
+      ? `${API_URL}/posts?publicOnly=1&limit=50`
+      : `${API_URL}/posts?publicOnly=1&type=article&limit=50`;
     const postsRes = await fetch(postsUrl, { next: { revalidate: 60 } });
 
     let items = "";
@@ -133,7 +133,7 @@ export async function GET() {
             ? `${domain}/articles/${post.shortId || post.id}`
             : `${domain}/moments/${post.shortId || post.id}`;
           const excerpt = generateExcerpt(post);
-          const pubDate = new Date(post.createdAt).toUTCString();
+          const pubDate = new Date(post.publishedAt || post.createdAt).toUTCString();
           const guid = `${domain}/${post.id}`;
           const author = post.author?.nickname || siteName;
 

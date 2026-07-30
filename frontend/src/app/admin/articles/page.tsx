@@ -23,6 +23,8 @@ interface ArticleListItem {
   isAd: boolean;
   status: "published" | "draft";
   createdAt: string;
+  publishedAt?: string;
+  visibility: "public" | "authenticated" | "selected";
   author: string;
 }
 
@@ -195,9 +197,8 @@ export default function AdminArticlesPage() {
                             {article.category}
                           </span>
                         )}
-                        <span>
-                          {formatArticleTime(article.createdAt)}
-                        </span>
+                        <span>发布 {formatArticleTime(article.publishedAt || article.createdAt)}</span>
+                        <span>录入 {formatArticleTime(article.createdAt)}</span>
                       </div>
                     </div>
 

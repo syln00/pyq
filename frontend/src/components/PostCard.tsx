@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef, type CSSProperties } from "react";
 import { Music, Pause, Pin, FileText } from "lucide-react";
-import { Post, formatRelativeTime, getPostSourceLabel } from "@/lib/mock-data";
+import { Post, formatRelativeTime, getPostSourceLabel, postPublishedAt } from "@/lib/mock-data";
 import { resolveAvatar } from "@/lib/avatar";
 import { normalizeImages } from "@/lib/post-image";
 import { toAbsoluteUrl, toHttps } from "@/lib/upload";
@@ -531,7 +531,7 @@ export default function PostCard({ post, index, onDelete }: PostCardProps) {
         {/* Time + action */}
         <div className="mt-2 flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-[13px] text-wechat-time md:text-[14px]">
-            <time>{formatRelativeTime(post.createdAt)}</time>
+            <time>{formatRelativeTime(postPublishedAt(post))}</time>
             {(() => {
               const src = getPostSourceLabel(post);
               if (!src) return null;

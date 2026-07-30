@@ -54,13 +54,14 @@ router.get("/dashboard", authenticate, requireAdmin, async (_req: AuthRequest, r
   const recentPostRows = await Post.findAll({
     where: { isAd: false },
     include: [{ model: User, as: "author", attributes: ["nickname"] }],
-    order: [["createdAt", "DESC"]],
+    order: [["publishedAt", "DESC"]],
     limit: 5,
   });
   const recentPosts = recentPostRows.map((p: any) => ({
     id: p.id,
     content: (p.content || "").replace(/<[^>]+>/g, "").slice(0, 100),
     createdAt: p.createdAt,
+    publishedAt: p.publishedAt || p.createdAt,
     pinned: !!p.pinned,
     author: p.author?.nickname || "",
   }));
@@ -119,7 +120,7 @@ router.get("/posts", authenticate, requireAdmin, async (req: AuthRequest, res: R
   const { count, rows: posts } = await Post.findAndCountAll({
     where,
     include: [{ model: User, as: "author", attributes: ["id", "nickname", "avatar"] }],
-    order: [["pinned", "DESC"], ["createdAt", "DESC"]],
+    order: [["pinned", "DESC"], ["publishedAt", "DESC"]],
     limit,
     offset,
     distinct: true,
@@ -141,6 +142,8 @@ router.get("/posts", authenticate, requireAdmin, async (req: AuthRequest, res: R
       isAd: !!p.isAd,
       status: p.status || "published",
       createdAt: p.createdAt,
+      publishedAt: p.publishedAt || p.createdAt,
+      visibility: p.visibility || "public",
       author: p.author?.nickname || "",
     })),
     pagination: { page, limit, total: count, totalPages: Math.ceil(count / limit) },
