@@ -92,7 +92,7 @@ router.get("/dashboard", authenticate, requireAdmin, async (_req: AuthRequest, r
 // GET /api/admin/users - list users
 router.get("/users", authenticate, requireAdmin, async (_req: AuthRequest, res: Response) => {
   const users = await User.findAll({
-    attributes: ["id", "email", "username", "nickname", "avatar", "cover", "bio", "website", "role", "createdAt"],
+    attributes: ["id", "email", "username", "nickname", "avatar", "cover", "bio", "website", "role", "accountStatus", "canPublish", "createdAt"],
     order: [["createdAt", "DESC"]],
   });
   res.json(users);
@@ -215,6 +215,47 @@ router.put(
       bio: user.bio,
       website: user.website,
       role: user.role,
+    });
+  }
+);
+
+// PATCH /api/admin/users/:id/access - approve/suspend/reject and grant publishing.
+router.patch(
+  "/users/:id/access",
+  authenticate,
+  requireAdmin,
+  [
+    param("id").isUUID(),
+    body("accountStatus").optional().isIn(["pending", "active", "suspended", "rejected"]),
+    body("canPublish").optional().isBoolean(),
+  ],
+  async (req: AuthRequest, res: Response) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+    const user = await User.findByPk(req.params.id as string);
+    if (!user) {
+      res.status(404).json({ message: "用户不存在" });
+      return;
+    }
+    if (user.role === "admin" && req.body.accountStatus && req.body.accountStatus !== "active") {
+      res.status(400).json({ message: "不能停用管理员账号" });
+      return;
+    }
+    await user.update({
+      accountStatus: user.role === "admin" ? "active" : (req.body.accountStatus ?? user.accountStatus),
+      canPublish: user.role === "admin" ? true : (req.body.canPublish ?? user.canPublish),
+    });
+    res.json({
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      nickname: user.nickname,
+      role: user.role,
+      accountStatus: user.accountStatus,
+      canPublish: user.role === "admin" || user.canPublish,
     });
   }
 );

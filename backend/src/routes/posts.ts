@@ -1,8 +1,9 @@
 import { Router, Request, Response } from "express";
 import { body, param, validationResult } from "express-validator";
 import { Op, fn, col } from "sequelize";
+import sequelize from "../config/database";
 import { Post, Comment, Like, CommentLike, User, SiteSetting, Media } from "../models";
-import { authenticate, authenticateOptional, AuthRequest, requireAdmin } from "../middleware/auth";
+import { authenticate, authenticateOptional, AuthRequest, requireAdmin, requirePublisher } from "../middleware/auth";
 import { getClientIp } from "../utils/ip";
 import { getRegionByIp } from "../utils/region";
 import { generateShortId } from "../utils/short-id";
@@ -11,6 +12,17 @@ import { checkCommentRate, recordCommentSuccess, resetViolations } from "../midd
 import { blacklistService } from "../services/blacklist-service";
 import { sendCommentNotification } from "../services/email-service";
 import { parseVideoFromUrl, ParseError } from "./video-parse";
+import {
+  canManagePost,
+  canViewPost,
+  hasExternalMedia,
+  publishedPostWhere,
+  replacePostMedia,
+  replaceVisibleUsers,
+  validateMediaIds,
+  validateSelectedUsers,
+  type PostVisibility,
+} from "../services/post-access-service";
 
 const router = Router();
 
@@ -131,13 +143,13 @@ async function validateR2MusicPayload(value: unknown, userId: string) {
   if (!music) return null;
   const url = music.url;
   if (typeof url !== "string") throw new Error("音乐地址格式无效");
-  const audio = await Media.findOne({ where: { url, uploaderId: userId, storageType: "r2" } });
+  const audio = await Media.findOne({ where: { url, uploaderId: userId, storageType: { [Op.in]: ["r2", "s3"] } } });
   if (!audio || !audio.mimeType.startsWith("audio/")) {
     throw new Error("音乐必须引用本人上传的 R2 音频文件");
   }
   if (music.cover) {
     if (typeof music.cover !== "string") throw new Error("音乐封面格式无效");
-    const cover = await Media.findOne({ where: { url: music.cover, uploaderId: userId, storageType: "r2" } });
+    const cover = await Media.findOne({ where: { url: music.cover, uploaderId: userId, storageType: { [Op.in]: ["r2", "s3"] } } });
     if (!cover || !cover.mimeType.startsWith("image/")) throw new Error("音乐封面必须引用本人上传的 R2 图片");
   }
   const name = typeof music.name === "string" ? music.name.trim().slice(0, 255) : "";
@@ -149,7 +161,8 @@ async function validateR2MusicPayload(value: unknown, userId: string) {
 function formatPost(
   post: any,
   meLiked = false,
-  commentLikesMap?: Map<string, { likeCount: number; meLiked: boolean }>
+  commentLikesMap?: Map<string, { likeCount: number; meLiked: boolean }>,
+  viewer?: AuthRequest["user"]
 ) {
   // 静态 R2 音频直接返回，无需解析外部音源。
   const music = post.music || null;
@@ -189,6 +202,8 @@ function formatPost(
       likesDisabled: post.likesDisabled || false,
       commentsDisabled: post.commentsDisabled || false,
       createdAt: post.createdAt,
+      publishedAt: post.publishedAt || post.createdAt,
+      visibility: post.visibility || "public",
       region: post.region || "",
       articleType: post.articleType || "original",
       repostUrl: post.repostUrl || "",
@@ -217,7 +232,24 @@ function formatPost(
       likes: post.likes?.filter((l: any) => l.status === "like")
         .map((l: any) => ({ name: l.name, email: l.email || l.user?.email || undefined })) || [],
       meLiked,
+      ...((viewer?.role === "admin" || viewer?.id === post.userId)
+        ? { visibleUserIds: (post.visibleUsers || []).map((u: any) => u.id) }
+        : {}),
     };
+}
+
+function parsePublishedAt(value: unknown): Date {
+  if (value == null || value === "") return new Date();
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) throw new Error("发布时间格式无效");
+  if (date.getTime() > Date.now() + 60_000) throw new Error("发布时间不能晚于当前时间");
+  return date;
+}
+
+function normalizeVisibility(value: unknown): PostVisibility {
+  return value === "public" || value === "selected" || value === "authenticated"
+    ? value
+    : "authenticated";
 }
 
 // GET /api/posts - list posts with pagination（排除广告，广告由 /api/ads 单独提供）
@@ -227,25 +259,25 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response) =>
   const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
   const offset = (page - 1) * limit;
 
-  const where: any = { isAd: false, status: "published" };
+  const filters: any = { isAd: false };
   const typeParam = req.query.type as string;
   if (typeParam === "article" || typeParam === "moment") {
-    where.type = typeParam;
+    filters.type = typeParam;
   }
   const categoryParam = req.query.category as string;
   if (categoryParam) {
-    where.category = categoryParam;
+    filters.category = categoryParam;
   }
 
   const { count, rows: posts } = await Post.findAndCountAll({
     distinct: true,
-    where,
+    where: publishedPostWhere(req.user, filters),
     include: [
       { model: User, as: "author", attributes: ["id", "email", "username", "nickname", "avatar", "cover", "bio"] },
       { model: Comment, as: "comments" },
       { model: Like, as: "likes", include: [{ model: User, as: "user", attributes: ["email"], required: false }] },
     ],
-    order: [["pinned", "DESC"], ["createdAt", "DESC"]],
+    order: [["pinned", "DESC"], ["publishedAt", "DESC"]],
     limit,
     offset,
   });
@@ -307,14 +339,14 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response) =>
   }
 
   res.json({
-    data: posts.map((p: any) => formatPost(p, likedPostIds.has(p.id), commentLikesMap)),
+    data: posts.map((p: any) => formatPost(p, likedPostIds.has(p.id), commentLikesMap, req.user)),
     pagination: { page, limit, total: count, totalPages: Math.ceil(count / limit), hasMore: page * limit < count },
   });
 });
 
 // GET /api/posts/search?q=keyword — compact keyword search (title, excerpt, content)
 // Must be registered before /:id so that "/search" is not parsed as an id.
-router.get("/search", async (req: Request, res: Response) => {
+router.get("/search", authenticateOptional, async (req: AuthRequest, res: Response) => {
   const q = String(req.query.q || "").trim();
   if (!q) {
     res.json([]);
@@ -322,19 +354,18 @@ router.get("/search", async (req: Request, res: Response) => {
   }
 
   const posts = await Post.findAll({
-    where: {
+    where: publishedPostWhere(req.user, {
       isAd: false,
-      status: "published",
       [Op.or]: [
         { title: { [Op.like]: `%${q}%` } },
         { excerpt: { [Op.like]: `%${q}%` } },
         { content: { [Op.like]: `%${q}%` } },
       ],
-    },
+    }),
     include: [
       { model: User, as: "author", attributes: ["id", "email", "nickname", "avatar"] },
     ],
-    order: [["createdAt", "DESC"]],
+    order: [["publishedAt", "DESC"]],
     limit: 20,
   });
 
@@ -347,6 +378,8 @@ router.get("/search", async (req: Request, res: Response) => {
     content: (p.content || "").replace(/<[^>]*>/g, "").slice(0, 120),
     cover: p.cover || "",
     createdAt: p.createdAt,
+    publishedAt: p.publishedAt || p.createdAt,
+    visibility: p.visibility || "public",
     author: p.author
       ? { nickname: p.author.nickname, avatar: p.author.avatar }
       : undefined,
@@ -371,6 +404,11 @@ router.get("/:id", authenticateOptional, async (req: AuthRequest, res: Response)
   });
 
   if (!post) {
+    res.status(404).json({ message: "动态不存在" });
+    return;
+  }
+
+  if (!(await canViewPost(post, req.user))) {
     res.status(404).json({ message: "动态不存在" });
     return;
   }
@@ -428,14 +466,24 @@ router.get("/:id", authenticateOptional, async (req: AuthRequest, res: Response)
     }
   }
 
-  res.json(formatPost(post, meLiked, commentLikesMap));
+  if (req.user?.role === "admin" || req.user?.id === post.userId) {
+    await (post as any).reload({
+      include: [
+        { model: User, as: "author", attributes: ["id", "email", "username", "nickname", "avatar", "cover", "bio"] },
+        { model: Comment, as: "comments" },
+        { model: Like, as: "likes", include: [{ model: User, as: "user", attributes: ["email"], required: false }] },
+        { model: User, as: "visibleUsers", attributes: ["id"], through: { attributes: [] } },
+      ],
+    });
+  }
+  res.json(formatPost(post, meLiked, commentLikesMap, req.user));
 });
 
-// POST /api/posts - create post (admin only)
+// POST /api/posts - create post (admin or approved publisher)
 router.post(
   "/",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   [
     body("type").optional().isIn(["moment", "article"]),
     body("title").optional().trim().isLength({ max: 200 }),
@@ -457,6 +505,11 @@ router.post(
     body("commentsDisabled").optional().isBoolean(),
     body("pinned").optional().isBoolean(),
     body("status").optional().isIn(["published", "draft"]),
+    body("visibility").optional().isIn(["public", "authenticated", "selected"]),
+    body("visibleUserIds").optional().isArray(),
+    body("publishedAt").optional().isISO8601(),
+    body("mediaIds").optional().isArray(),
+    body("acknowledgeExternalMediaRisk").optional().isBoolean(),
   ],
   async (req: AuthRequest, res: Response) => {
     const errors = validationResult(req);
@@ -486,21 +539,47 @@ router.post(
       commentsDisabled = false,
       pinned = false,
       status = "published",
+      visibility: visibilityValue = "authenticated",
+      visibleUserIds = [],
+      mediaIds = [],
     } = req.body;
+
+    const visibility = normalizeVisibility(visibilityValue);
+    const publishedAt = parsePublishedAt(req.body.publishedAt);
+    const selectedUserIds = visibility === "selected"
+      ? await validateSelectedUsers(visibleUserIds, req.user!.id)
+      : [];
+    if (visibility === "selected" && selectedUserIds.length === 0) {
+      res.status(400).json({ message: "指定用户可见时至少选择一个用户" });
+      return;
+    }
+    const approvedMediaIds = await validateMediaIds(mediaIds, req.user!.id, req.user!.role === "admin");
+    const externalMedia = hasExternalMedia({ images, cover, music, linkCard, video, douban, content });
+    if (visibility !== "public" && externalMedia && req.body.acknowledgeExternalMediaRisk !== true) {
+      res.status(400).json({
+        message: "非公开内容包含外部媒体直链，外部资源无法受本站权限保护，请确认风险后再发布",
+        code: "EXTERNAL_MEDIA_ACK_REQUIRED",
+      });
+      return;
+    }
 
     const normalizedMusic = await validateR2MusicPayload(music, req.user!.id);
 
-    // 广告不允许置顶，强制清零防止前端绕过
-    const finalPinned = isAd ? false : pinned;
+    const isAdmin = req.user!.role === "admin";
+    const finalIsAd = isAdmin ? isAd : false;
+    // 广告和普通发布者都不能自行置顶。
+    const finalPinned = isAdmin && !finalIsAd ? pinned : false;
 
     const ip = getClientIp(req);
     const ipRegion = await getRegionByIp(ip);
     const region = bodyRegion || ipRegion;
 
+    const transaction = await sequelize.transaction();
     let post: Post | null = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        post = await Post.create({
+    try {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          post = await Post.create({
           userId: req.user!.id,
           shortId: generateShortId(),
           type,
@@ -517,19 +596,28 @@ router.post(
           linkCard,
           video,
           douban,
-          isAd,
+          isAd: finalIsAd,
           likesDisabled,
           commentsDisabled,
           pinned: finalPinned,
           status,
+          visibility: finalIsAd ? "public" : visibility,
+          publishedAt,
           ip,
           region,
-        });
-        break;
-      } catch (err: any) {
-        if (err.name === "SequelizeUniqueConstraintError" && attempt < 4) continue;
-        throw err;
+          }, { transaction });
+          break;
+        } catch (err: any) {
+          if (err.name === "SequelizeUniqueConstraintError" && attempt < 4) continue;
+          throw err;
+        }
       }
+      await replaceVisibleUsers(post!.id, selectedUserIds, transaction);
+      await replacePostMedia(post!.id, approvedMediaIds, transaction);
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
 
     const full = await Post.findByPk(post!.id, {
@@ -537,21 +625,25 @@ router.post(
         { model: User, as: "author", attributes: ["id", "email", "username", "nickname", "avatar", "cover", "bio"] },
         { model: Comment, as: "comments" },
         { model: Like, as: "likes", include: [{ model: User, as: "user", attributes: ["email"], required: false }] },
+        { model: User, as: "visibleUsers", attributes: ["id"], through: { attributes: [] } },
       ],
     });
 
     // 触发首页 ISR 重生成，确保刷新页面立即可见最新动态
     triggerRevalidate();
 
-    res.status(201).json(formatPost(full));
+    res.status(201).json({
+      ...formatPost(full, false, undefined, req.user),
+      warnings: visibility !== "public" && externalMedia ? [{ code: "EXTERNAL_MEDIA_PUBLIC" }] : [],
+    });
   }
 );
 
-// PUT /api/posts/:id - update post (admin only)
+// PUT /api/posts/:id - update post (admin or owner publisher)
 router.put(
   "/:id",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   [
     param("id").isUUID(),
     body("type").optional().isIn(["moment", "article"]),
@@ -574,6 +666,11 @@ router.put(
     body("commentsDisabled").optional().isBoolean(),
     body("pinned").optional().isBoolean(),
     body("status").optional().isIn(["published", "draft"]),
+    body("visibility").optional().isIn(["public", "authenticated", "selected"]),
+    body("visibleUserIds").optional().isArray(),
+    body("publishedAt").optional().isISO8601(),
+    body("mediaIds").optional().isArray(),
+    body("acknowledgeExternalMediaRisk").optional().isBoolean(),
   ],
   async (req: AuthRequest, res: Response) => {
     const errors = validationResult(req);
@@ -582,9 +679,18 @@ router.put(
       return;
     }
 
-    const post = await Post.findByPk(req.params.id as string);
+    const post = await Post.findByPk(req.params.id as string, {
+      include: [
+        { model: User, as: "visibleUsers", attributes: ["id"], through: { attributes: [] } },
+        { model: Media, as: "mediaItems", attributes: ["id"], through: { attributes: [] } },
+      ],
+    });
     if (!post) {
       res.status(404).json({ message: "动态不存在" });
+      return;
+    }
+    if (!canManagePost(post, req.user) || (post.isAd && req.user!.role !== "admin")) {
+      res.status(403).json({ message: "无权编辑该内容" });
       return;
     }
 
@@ -592,49 +698,104 @@ router.put(
       ? await validateR2MusicPayload(req.body.music, req.user!.id)
       : post.music;
 
-    const finalIsAd = req.body.isAd !== undefined ? req.body.isAd : post.isAd;
+    const isAdmin = req.user!.role === "admin";
+    const finalIsAd = isAdmin && req.body.isAd !== undefined ? req.body.isAd : post.isAd;
     const incomingPinned = req.body.pinned;
-    const finalPinned = finalIsAd
+    const finalPinned = !isAdmin
+      ? post.pinned
+      : finalIsAd
       ? false
       : incomingPinned !== undefined
         ? incomingPinned
         : post.pinned;
 
-    await post.update({
-      type: req.body.type !== undefined ? req.body.type : post.type,
-      title: req.body.title !== undefined ? req.body.title : post.title,
-      excerpt: req.body.excerpt !== undefined ? req.body.excerpt : post.excerpt,
-      cover: req.body.cover !== undefined ? req.body.cover : post.cover,
-      category: req.body.category !== undefined ? req.body.category : post.category,
-      articleType: req.body.articleType !== undefined ? req.body.articleType : post.articleType,
-      repostUrl: req.body.repostUrl !== undefined ? req.body.repostUrl : post.repostUrl,
+    const visibility = finalIsAd
+      ? "public"
+      : req.body.visibility !== undefined
+        ? normalizeVisibility(req.body.visibility)
+        : post.visibility;
+    const currentVisibleIds = ((post as any).visibleUsers || []).map((u: any) => u.id);
+    const selectedUserIds = visibility === "selected"
+      ? await validateSelectedUsers(req.body.visibleUserIds ?? currentVisibleIds, post.userId)
+      : [];
+    if (visibility === "selected" && selectedUserIds.length === 0) {
+      res.status(400).json({ message: "指定用户可见时至少选择一个用户" });
+      return;
+    }
+    const currentMediaIds = ((post as any).mediaItems || []).map((m: any) => m.id);
+    const approvedMediaIds = req.body.mediaIds !== undefined
+      ? await validateMediaIds(req.body.mediaIds, post.userId, isAdmin)
+      : currentMediaIds;
+    const finalPayload = {
       content: req.body.content !== undefined ? req.body.content : post.content,
       images: req.body.images !== undefined ? req.body.images : post.images,
-      location: req.body.location !== undefined ? req.body.location : post.location,
-      region: req.body.region !== undefined ? req.body.region : post.region,
+      cover: req.body.cover !== undefined ? req.body.cover : post.cover,
       music: normalizedMusic,
       linkCard: req.body.linkCard !== undefined ? req.body.linkCard : post.linkCard,
       video: req.body.video !== undefined ? req.body.video : post.video,
       douban: req.body.douban !== undefined ? req.body.douban : post.douban,
+    };
+    const externalMedia = hasExternalMedia(finalPayload);
+    if (visibility !== "public" && externalMedia && req.body.acknowledgeExternalMediaRisk !== true) {
+      res.status(400).json({
+        message: "非公开内容包含外部媒体直链，外部资源无法受本站权限保护，请确认风险后再保存",
+        code: "EXTERNAL_MEDIA_ACK_REQUIRED",
+      });
+      return;
+    }
+
+    const transaction = await sequelize.transaction();
+    try {
+      await post.update({
+      type: req.body.type !== undefined ? req.body.type : post.type,
+      title: req.body.title !== undefined ? req.body.title : post.title,
+      excerpt: req.body.excerpt !== undefined ? req.body.excerpt : post.excerpt,
+      cover: finalPayload.cover,
+      category: req.body.category !== undefined ? req.body.category : post.category,
+      articleType: req.body.articleType !== undefined ? req.body.articleType : post.articleType,
+      repostUrl: req.body.repostUrl !== undefined ? req.body.repostUrl : post.repostUrl,
+      content: finalPayload.content,
+      images: finalPayload.images,
+      location: req.body.location !== undefined ? req.body.location : post.location,
+      region: req.body.region !== undefined ? req.body.region : post.region,
+      music: normalizedMusic,
+      linkCard: finalPayload.linkCard,
+      video: finalPayload.video,
+      douban: finalPayload.douban,
       isAd: finalIsAd,
       likesDisabled: req.body.likesDisabled !== undefined ? req.body.likesDisabled : post.likesDisabled,
       commentsDisabled: req.body.commentsDisabled !== undefined ? req.body.commentsDisabled : post.commentsDisabled,
       pinned: finalPinned,
       status: req.body.status !== undefined ? req.body.status : post.status,
-    });
+      visibility,
+      publishedAt: req.body.publishedAt !== undefined ? parsePublishedAt(req.body.publishedAt) : post.publishedAt,
+      }, { transaction });
+      await replaceVisibleUsers(post.id, selectedUserIds, transaction);
+      await replacePostMedia(post.id, approvedMediaIds, transaction);
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
 
     // 触发首页 ISR 重生成，确保刷新页面看到最新动态
     triggerRevalidate();
 
-    res.json(formatPost(post));
+    await post.reload({
+      include: [{ model: User, as: "visibleUsers", attributes: ["id"], through: { attributes: [] } }],
+    });
+    res.json({
+      ...formatPost(post, false, undefined, req.user),
+      warnings: visibility !== "public" && externalMedia ? [{ code: "EXTERNAL_MEDIA_PUBLIC" }] : [],
+    });
   }
 );
 
-// DELETE /api/posts/:id - delete post (admin only)
+// DELETE /api/posts/:id - admin or owning publisher
 router.delete(
   "/:id",
   authenticate,
-  requireAdmin,
+  requirePublisher,
   param("id").isUUID(),
   async (req: AuthRequest, res: Response) => {
     const errors = validationResult(req);
@@ -646,6 +807,10 @@ router.delete(
     const post = await Post.findByPk(req.params.id as string);
     if (!post) {
       res.status(404).json({ message: "动态不存在" });
+      return;
+    }
+    if (!canManagePost(post, req.user) || (post.isAd && req.user!.role !== "admin")) {
+      res.status(403).json({ message: "无权删除该内容" });
       return;
     }
 
@@ -693,8 +858,9 @@ router.patch(
 // skipCache=1 时跳过内存缓存（播放失败自动重试时使用）。
 router.post(
   "/:id/refresh-video",
+  authenticateOptional,
   param("id").isUUID(),
-  async (req: Request, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       res.status(400).json({ errors: errors.array() });
@@ -702,6 +868,10 @@ router.post(
     }
     const post = await Post.findByPk(req.params.id as string);
     if (!post) {
+      res.status(404).json({ message: "动态不存在" });
+      return;
+    }
+    if (!(await canViewPost(post, req.user))) {
       res.status(404).json({ message: "动态不存在" });
       return;
     }
@@ -730,6 +900,7 @@ router.post(
 // POST /api/posts/:id/comments
 router.post(
   "/:id/comments",
+  authenticateOptional,
   [
     param("id").isUUID(),
     body("content").trim().isLength({ min: 1 }),
@@ -740,7 +911,7 @@ router.post(
     body("replyToEmail").optional().trim().isEmail().normalizeEmail(),
     body("replyToId").optional({ checkFalsy: true }).isUUID(),
   ],
-  async (req: Request, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       res.status(400).json({ errors: errors.array() });
@@ -754,9 +925,23 @@ router.post(
       res.status(404).json({ message: "动态不存在" });
       return;
     }
+    if (!(await canViewPost(post, req.user))) {
+      res.status(404).json({ message: "动态不存在" });
+      return;
+    }
+    if (post.commentsDisabled) {
+      res.status(403).json({ message: "该内容已关闭评论", code: "COMMENTS_DISABLED" });
+      return;
+    }
+    if (post.visibility !== "public" && !req.user) {
+      res.status(401).json({ message: "请登录后评论", code: "LOGIN_REQUIRED" });
+      return;
+    }
 
     const ip = getClientIp(req);
-    const email: string = req.body.email;
+    const loggedUser = req.user ? await User.findByPk(req.user.id, { attributes: ["id", "nickname", "email", "website"] }) : null;
+    const email: string = loggedUser?.email || req.body.email;
+    const authorName: string = loggedUser?.nickname || req.body.authorName;
     const commentRegion = await getRegionByIp(ip);
 
     // 评论防刷总开关：关闭时跳过黑名单和限流检查，仅记录 IP
@@ -825,17 +1010,24 @@ router.post(
       }
     }
 
+    let replyToUserId: string | null = null;
+    if (req.body.replyToId) {
+      const parent = await Comment.findOne({ where: { id: req.body.replyToId, postId: post.id }, attributes: ["userId"] });
+      replyToUserId = parent?.userId || null;
+    }
     const comment = await Comment.create({
       postId: post.id,
-      authorName: req.body.authorName,
+      authorName,
       email,
-      website: req.body.website || null,
+      website: loggedUser?.website || req.body.website || null,
       replyTo: req.body.replyTo || null,
       replyToEmail: req.body.replyToEmail || null,
       replyToId: req.body.replyToId || null,
       content: req.body.content,
       ip,
       region: commentRegion,
+      userId: loggedUser?.id || null,
+      replyToUserId,
     });
 
     // 评论成功后记录一次命中（用于后续限流计数），并重置该用户的违规计数
@@ -891,6 +1083,16 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    const post = await Post.findByPk(req.params.id as string);
+    if (!post || !(await canViewPost(post, req.user))) {
+      res.status(404).json({ message: "动态不存在" });
+      return;
+    }
+    if (post.visibility !== "public" && !req.user) {
+      res.status(401).json({ message: "请登录后操作", code: "LOGIN_REQUIRED" });
       return;
     }
 
@@ -991,6 +1193,14 @@ router.post(
     const post = await Post.findByPk(req.params.id as string);
     if (!post) {
       res.status(404).json({ message: "动态不存在" });
+      return;
+    }
+    if (!(await canViewPost(post, req.user))) {
+      res.status(404).json({ message: "动态不存在" });
+      return;
+    }
+    if (post.visibility !== "public" && !req.user) {
+      res.status(401).json({ message: "请登录后操作", code: "LOGIN_REQUIRED" });
       return;
     }
 

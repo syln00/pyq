@@ -91,9 +91,13 @@ interface PostAttributes {
   viewCount: number;
   /** 发布状态：published=已发布（默认），draft=草稿（不在前端显示） */
   status: "published" | "draft";
+  /** 内容可见范围；新内容默认仅登录用户可见 */
+  visibility: "public" | "authenticated" | "selected";
+  /** 用户选择的展示发布时间；createdAt 继续作为真实录入审计时间 */
+  publishedAt: Date;
 }
 
-interface PostCreationAttributes extends Optional<PostAttributes, "id" | "shortId" | "type" | "title" | "excerpt" | "cover" | "category" | "pinned" | "isAd" | "adAvatar" | "adNickname" | "likesDisabled" | "commentsDisabled" | "ip" | "region" | "articleType" | "repostUrl" | "viewCount" | "status"> {}
+interface PostCreationAttributes extends Optional<PostAttributes, "id" | "shortId" | "type" | "title" | "excerpt" | "cover" | "category" | "pinned" | "isAd" | "adAvatar" | "adNickname" | "likesDisabled" | "commentsDisabled" | "ip" | "region" | "articleType" | "repostUrl" | "viewCount" | "status" | "visibility" | "publishedAt"> {}
 
 class Post
   extends Model<PostAttributes, PostCreationAttributes>
@@ -126,6 +130,8 @@ class Post
   declare repostUrl: string;
   declare viewCount: number;
   declare status: "published" | "draft";
+  declare visibility: "public" | "authenticated" | "selected";
+  declare publishedAt: Date;
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
   // Association
@@ -270,6 +276,16 @@ Post.init(
       type: DataTypes.ENUM("published", "draft"),
       allowNull: false,
       defaultValue: "published",
+    },
+    visibility: {
+      type: DataTypes.ENUM("public", "authenticated", "selected"),
+      allowNull: false,
+      defaultValue: "authenticated",
+    },
+    publishedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
     },
   },
   {

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { User } from "../models";
+import { authenticate, AuthRequest } from "../middleware/auth";
 
 const router = Router();
 
@@ -17,6 +18,17 @@ router.get("/owner", async (_req: Request, res: Response) => {
   }
 
   res.json(owner);
+});
+
+// GET /api/users/selectable - active users available for selected visibility.
+router.get("/selectable", authenticate, async (req: AuthRequest, res: Response) => {
+  const users = await User.findAll({
+    where: { accountStatus: "active" },
+    attributes: ["id", "nickname", "username", "avatar"],
+    order: [["nickname", "ASC"]],
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json(users.filter((user) => user.id !== req.user!.id));
 });
 
 export default router;

@@ -62,11 +62,13 @@ interface SiteSettingAttributes {
   bannedWords: string | null;
   /** 进入网站是否自动播放歌单音乐 */
   musicAutoplay: boolean;
+  /** 是否允许访客提交注册申请；新账号仍需管理员审核 */
+  registrationEnabled: boolean;
 }
 
 interface SiteSettingCreationAttributes extends Optional<
   SiteSettingAttributes,
-  "id" | "siteName" | "description" | "keywords" | "domain" | "beian" | "footerHtml" | "decorationImage" | "faviconUrl" | "ogImage" | "backgroundImages" | "darkModeEnabled" | "darkModeStartTime" | "darkModeEndTime" | "emailNotifyEnabled" | "notifyEmail" | "smtpHost" | "smtpPort" | "smtpSecure" | "smtpUser" | "smtpPass" | "smtpFrom" | "emailTemplate" | "amapJsKey" | "amapSecurityJsCode" | "amapKey" | "beianUrl" | "socialLinks" | "postCollapseLength" | "fontUrl" | "fontFamily" | "adOnArchives" | "commentAntiSpamEnabled" | "rssEnabled" | "rssIncludeMoments" | "doubanId" | "doubanCache" | "doubanSyncStatus" | "doubanSyncedAt" | "doubanLastError" | "doubanSyncLeaseId" | "doubanSyncLeaseExpiresAt" | "doubanLastAttemptAt" | "bannedWords" | "musicAutoplay"
+  "id" | "siteName" | "description" | "keywords" | "domain" | "beian" | "footerHtml" | "decorationImage" | "faviconUrl" | "ogImage" | "backgroundImages" | "darkModeEnabled" | "darkModeStartTime" | "darkModeEndTime" | "emailNotifyEnabled" | "notifyEmail" | "smtpHost" | "smtpPort" | "smtpSecure" | "smtpUser" | "smtpPass" | "smtpFrom" | "emailTemplate" | "amapJsKey" | "amapSecurityJsCode" | "amapKey" | "beianUrl" | "socialLinks" | "postCollapseLength" | "fontUrl" | "fontFamily" | "adOnArchives" | "commentAntiSpamEnabled" | "rssEnabled" | "rssIncludeMoments" | "doubanId" | "doubanCache" | "doubanSyncStatus" | "doubanSyncedAt" | "doubanLastError" | "doubanSyncLeaseId" | "doubanSyncLeaseExpiresAt" | "doubanLastAttemptAt" | "bannedWords" | "musicAutoplay" | "registrationEnabled"
 > {}
 
 class SiteSetting
@@ -118,6 +120,7 @@ class SiteSetting
   declare doubanLastAttemptAt: Date | null;
   declare bannedWords: string | null;
   declare musicAutoplay: boolean;
+  declare registrationEnabled: boolean;
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
 }
@@ -342,6 +345,11 @@ SiteSetting.init(
       defaultValue: null,
     },
     musicAutoplay: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    registrationEnabled: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,

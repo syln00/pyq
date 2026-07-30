@@ -10,6 +10,8 @@ export interface TokenPayload {
   id: string;
   email: string;
   role: string;
+  canPublish?: boolean;
+  accountStatus?: string;
 }
 
 export function generateToken(payload: TokenPayload): string {

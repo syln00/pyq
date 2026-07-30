@@ -58,6 +58,7 @@ router.get("/", async (_req: Request, res: Response) => {
     rssIncludeMoments: setting.rssIncludeMoments,
     doubanId: setting.doubanId,
     musicAutoplay: setting.musicAutoplay,
+    registrationEnabled: setting.registrationEnabled,
     defaultCover: admin?.cover || "",
   });
 });
@@ -101,6 +102,7 @@ router.put(
     body("rssIncludeMoments").optional().isBoolean(),
     body("doubanId").optional().trim().isLength({ max: 100 }),
     body("musicAutoplay").optional().isBoolean(),
+    body("registrationEnabled").optional().isBoolean(),
     // Email config
     body("emailNotifyEnabled").optional().isBoolean(),
     body("notifyEmail").optional().trim().isLength({ max: 255 }),
@@ -162,6 +164,7 @@ router.put(
       doubanSyncLeaseId: doubanIdChanged ? null : setting.doubanSyncLeaseId,
       doubanSyncLeaseExpiresAt: doubanIdChanged ? null : setting.doubanSyncLeaseExpiresAt,
       musicAutoplay: req.body.musicAutoplay ?? setting.musicAutoplay,
+      registrationEnabled: req.body.registrationEnabled ?? setting.registrationEnabled,
       emailNotifyEnabled: req.body.emailNotifyEnabled ?? setting.emailNotifyEnabled,
       notifyEmail: req.body.notifyEmail ?? setting.notifyEmail,
       smtpHost: req.body.smtpHost ?? setting.smtpHost,
@@ -199,6 +202,7 @@ router.put(
       adOnArchives: setting.adOnArchives,
       rssEnabled: setting.rssEnabled,
       rssIncludeMoments: setting.rssIncludeMoments,
+      registrationEnabled: setting.registrationEnabled,
     });
   }
 );

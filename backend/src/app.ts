@@ -21,6 +21,7 @@ import doubanRoutes from "./routes/douban";
 import contentRoutes from "./routes/content";
 import { visitorCookieMiddleware } from "./middleware/visitor-cookie";
 import { ensureReady } from "./bootstrap";
+import { allowedOrigins, SESSION_COOKIE_NAME } from "./utils/session";
 
 dotenv.config();
 
@@ -48,6 +49,22 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(visitorCookieMiddleware);
+
+// Cookie-authenticated unsafe requests must originate from an allowed frontend.
+app.use((req, res, next) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || !req.cookies?.[SESSION_COOKIE_NAME]) {
+    next();
+    return;
+  }
+  const raw = String(req.headers.origin || req.headers.referer || "");
+  let origin = "";
+  try { origin = new URL(raw).origin; } catch { origin = ""; }
+  if (!origin || !allowedOrigins().has(origin.replace(/\/+$/, ""))) {
+    res.status(403).json({ message: "请求来源无效", code: "INVALID_ORIGIN" });
+    return;
+  }
+  next();
+});
 
 // 旧本地上传目录仅供非生产开发兼容；生产 R2-only 部署不会写入该目录。
 if (!process.env.VERCEL) {

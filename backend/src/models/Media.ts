@@ -1,7 +1,8 @@
 import { DataTypes, Model, Optional } from "sequelize";
 import sequelize from "../config/database";
 
-export type StorageType = "r2";
+export type StorageType = "r2" | "s3";
+export type MediaAccessClass = "owner_only" | "post_bound" | "public_asset";
 
 export type MediaCategory = "image" | "video" | "audio" | "file";
 export type MediaKind = "image" | "video" | "audio" | "lyric" | "file";
@@ -11,6 +12,9 @@ interface MediaAttributes {
   filename: string;
   url: string;
   storageType: StorageType;
+  /** S3 provider-neutral object key. New records must use this instead of parsing URL. */
+  objectKey: string;
+  accessClass: MediaAccessClass;
   mimeType: string;
   kind: MediaKind;
   size: number;
@@ -33,7 +37,7 @@ interface MediaAttributes {
 
 interface MediaCreationAttributes extends Optional<
   MediaAttributes,
-  "id" | "createdAt" | "updatedAt" | "livePhotoVideo" | "livePhotoImage"
+  "id" | "createdAt" | "updatedAt" | "livePhotoVideo" | "livePhotoImage" | "objectKey" | "accessClass"
 > {}
 
 class Media
@@ -44,6 +48,8 @@ class Media
   declare filename: string;
   declare url: string;
   declare storageType: StorageType;
+  declare objectKey: string;
+  declare accessClass: MediaAccessClass;
   declare mimeType: string;
   declare kind: MediaKind;
   declare size: number;
@@ -72,7 +78,17 @@ Media.init(
     storageType: {
       type: DataTypes.STRING(20),
       allowNull: false,
-      defaultValue: "local",
+      defaultValue: "s3",
+    },
+    objectKey: {
+      type: DataTypes.STRING(600),
+      allowNull: false,
+      defaultValue: "",
+    },
+    accessClass: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: "owner_only",
     },
     mimeType: {
       type: DataTypes.STRING(100),

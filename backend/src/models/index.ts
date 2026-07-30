@@ -14,10 +14,15 @@ import UploadIntent from "./UploadIntent";
 import ContentPage from "./ContentPage";
 import CatalogCategory from "./CatalogCategory";
 import CatalogItem from "./CatalogItem";
+import PostVisibleUser from "./PostVisibleUser";
+import PostMedia from "./PostMedia";
 
 // Associations
 User.hasMany(Post, { foreignKey: "userId", as: "posts" });
 Post.belongsTo(User, { foreignKey: "userId", as: "author" });
+
+Post.belongsToMany(User, { through: PostVisibleUser, foreignKey: "postId", otherKey: "userId", as: "visibleUsers" });
+User.belongsToMany(Post, { through: PostVisibleUser, foreignKey: "userId", otherKey: "postId", as: "selectedPosts" });
 
 Post.hasMany(Comment, { foreignKey: "postId", as: "comments" });
 Comment.belongsTo(Post, { foreignKey: "postId", as: "post" });
@@ -40,6 +45,8 @@ User.hasMany(CommentLike, { foreignKey: "userId", as: "userCommentLikes" });
 
 Media.belongsTo(User, { foreignKey: "uploaderId", as: "uploader" });
 User.hasMany(Media, { foreignKey: "uploaderId", as: "uploadedMedia" });
+Post.belongsToMany(Media, { through: PostMedia, foreignKey: "postId", otherKey: "mediaId", as: "mediaItems" });
+Media.belongsToMany(Post, { through: PostMedia, foreignKey: "mediaId", otherKey: "postId", as: "posts" });
 
 MusicPlaylist.hasMany(MusicTrack, { foreignKey: "playlistId", as: "tracks", onDelete: "CASCADE" });
 MusicTrack.belongsTo(MusicPlaylist, { foreignKey: "playlistId", as: "playlist" });
@@ -72,6 +79,8 @@ export {
   ContentPage,
   CatalogCategory,
   CatalogItem,
+  PostVisibleUser,
+  PostMedia,
   siteSettingTextDefaults,
 };
 export { getMediaCategory } from "./Media";

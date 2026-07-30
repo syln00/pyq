@@ -2,10 +2,11 @@ import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { body, validationResult } from "express-validator";
 import { Op } from "sequelize";
-import { User, Like } from "../models";
+import { User, Like, SiteSetting } from "../models";
 import { generateToken } from "../utils/jwt";
 import { getClientIp } from "../utils/ip";
-import { AuthRequest } from "../middleware/auth";
+import { authenticate, AuthRequest } from "../middleware/auth";
+import { SESSION_COOKIE_NAME, sessionCookieOptions } from "../utils/session";
 
 const router = Router();
 
@@ -112,6 +113,8 @@ function publicUser(user: User) {
     bio: user.bio,
     website: user.website,
     role: user.role,
+    accountStatus: user.accountStatus,
+    canPublish: user.role === "admin" || user.canPublish,
   };
 }
 
@@ -132,6 +135,12 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    const setting = await SiteSetting.findByPk(1);
+    if (!setting?.registrationEnabled) {
+      res.status(403).json({ message: "管理员暂未开放注册", code: "REGISTER_DISABLED" });
       return;
     }
 
@@ -157,15 +166,11 @@ router.post(
       cover: cover || "",
       bio: bio || "",
       role: "visitor",
+      accountStatus: "pending",
+      canPublish: false,
     });
 
-    const token = generateToken({
-      id: user.id,
-      email: user.email,
-      role: user.role,
-    });
-
-    res.status(201).json({ token, user: publicUser(user) });
+    res.status(201).json({ user: publicUser(user), pendingApproval: true });
   }
 );
 
@@ -187,6 +192,17 @@ router.post(
     const user = await User.findOne({ where });
     if (!user) {
       res.status(401).json({ message: "用户名或密码错误" });
+      return;
+    }
+
+    if (user.role !== "admin" && user.accountStatus !== "active") {
+      const code = `ACCOUNT_${user.accountStatus.toUpperCase()}`;
+      const message = user.accountStatus === "pending"
+        ? "账号正在等待管理员审核"
+        : user.accountStatus === "rejected"
+          ? "注册申请未通过审核"
+          : "账号已被停用";
+      res.status(403).json({ message, code });
       return;
     }
 
@@ -213,8 +229,24 @@ router.post(
       role: user.role,
     });
 
+    res.cookie(SESSION_COOKIE_NAME, token, sessionCookieOptions());
     res.json({ token, user: publicUser(user) });
   }
 );
+
+router.get("/me", authenticate, async (req: AuthRequest, res: Response) => {
+  const user = await User.findByPk(req.user!.id);
+  if (!user) {
+    res.status(404).json({ message: "用户不存在" });
+    return;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ user: publicUser(user) });
+});
+
+router.post("/logout", (_req: Request, res: Response) => {
+  res.clearCookie(SESSION_COOKIE_NAME, { ...sessionCookieOptions(), maxAge: undefined });
+  res.status(204).send();
+});
 
 export default router;

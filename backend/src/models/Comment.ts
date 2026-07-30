@@ -15,10 +15,12 @@ interface CommentAttributes {
   content: string;
   ip?: string;
   region?: string;
+  userId: string | null;
+  replyToUserId: string | null;
 }
 
 interface CommentCreationAttributes
-  extends Optional<CommentAttributes, "id" | "postId" | "pageId" | "replyTo" | "replyToEmail" | "replyToId" | "website" | "ip" | "region"> {}
+  extends Optional<CommentAttributes, "id" | "postId" | "pageId" | "replyTo" | "replyToEmail" | "replyToId" | "website" | "ip" | "region" | "userId" | "replyToUserId"> {}
 
 class Comment
   extends Model<CommentAttributes, CommentCreationAttributes>
@@ -36,6 +38,8 @@ class Comment
   declare content: string;
   declare ip?: string;
   declare region?: string;
+  declare userId: string | null;
+  declare replyToUserId: string | null;
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
   // Association
@@ -100,6 +104,18 @@ Comment.init(
     region: {
       type: DataTypes.STRING(20),
       allowNull: true,
+    },
+    userId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: { model: "users", key: "id" },
+      onDelete: "SET NULL",
+    },
+    replyToUserId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: { model: "users", key: "id" },
+      onDelete: "SET NULL",
     },
   },
   {

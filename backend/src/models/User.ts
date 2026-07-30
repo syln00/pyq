@@ -12,9 +12,11 @@ interface UserAttributes {
   website: string;
   password: string;
   role: "admin" | "visitor";
+  accountStatus: "pending" | "active" | "suspended" | "rejected";
+  canPublish: boolean;
 }
 
-interface UserCreationAttributes extends Optional<UserAttributes, "id" | "role" | "website" | "username"> {}
+interface UserCreationAttributes extends Optional<UserAttributes, "id" | "role" | "website" | "username" | "accountStatus" | "canPublish"> {}
 
 class User
   extends Model<UserAttributes, UserCreationAttributes>
@@ -30,6 +32,8 @@ class User
   declare website: string;
   declare password: string;
   declare role: "admin" | "visitor";
+  declare accountStatus: "pending" | "active" | "suspended" | "rejected";
+  declare canPublish: boolean;
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
 }
@@ -84,6 +88,16 @@ User.init(
       type: DataTypes.ENUM("admin", "visitor"),
       allowNull: false,
       defaultValue: "visitor",
+    },
+    accountStatus: {
+      type: DataTypes.ENUM("pending", "active", "suspended", "rejected"),
+      allowNull: false,
+      defaultValue: "active",
+    },
+    canPublish: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
   },
   {

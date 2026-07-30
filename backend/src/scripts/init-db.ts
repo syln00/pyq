@@ -8,6 +8,7 @@ import { migrateFooterHtml } from "./migrate-footer-html";
 import { migrateDecorationImage } from "./migrate-decoration-image";
 import { migrateCatalogItemFields } from "./migrate-catalog-item-fields";
 import { migrateR2MusicFields } from "./migrate-r2-music-fields";
+import { migratePrivacyAccess } from "./migrate-privacy-access";
 
 const DEFAULT_PLAYLIST_SLUG = "site-default";
 
@@ -42,6 +43,9 @@ async function ensureAdmin() {
   const { email, password, username } = adminConfig();
 
   if (existingAdmin) {
+    if (existingAdmin.accountStatus !== "active" || !existingAdmin.canPublish) {
+      await existingAdmin.update({ accountStatus: "active", canPublish: true });
+    }
     if (!existingAdmin.username) {
       const usernameOwner = await User.findOne({ where: { username } });
       if (!usernameOwner || usernameOwner.id === existingAdmin.id) {
@@ -75,6 +79,8 @@ async function ensureAdmin() {
     cover: "https://picsum.photos/seed/momentscover/1200/600",
     bio: "这是一个朋友圈博客程序",
     role: "admin",
+    accountStatus: "active",
+    canPublish: true,
   });
   console.log(`Admin created (${admin.email}).`);
   return admin;
@@ -108,6 +114,7 @@ export async function initializeDatabase() {
   await migrateDecorationImage();
   await migrateCatalogItemFields();
   await migrateR2MusicFields();
+  await migratePrivacyAccess();
 
   await ensureSiteSettings();
   await ensureDefaultPlaylist();
