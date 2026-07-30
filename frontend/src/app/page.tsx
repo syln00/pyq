@@ -11,17 +11,14 @@ import AdminNotifications from "@/components/AdminNotifications";
 import EditPostModal from "@/components/EditPostModal";
 import ProfileScrollRestoration from "@/components/profile/ProfileScrollRestoration";
 import { owner as fallbackOwner, User } from "@/lib/mock-data";
-import { getApiUrl } from "@/lib/api-fetch";
-
-const API_URL = getApiUrl();
+import { serverApiFetch } from "@/lib/server-api";
 const PAGE_SIZE = 10;
 
-// ISR：10 秒重新验证（后端写操作后会触发按需重验证，10秒仅作安全网）
-export const revalidate = 10;
+export const dynamic = "force-dynamic";
 
 async function getOwner(): Promise<User> {
   try {
-    const res = await fetch(`${API_URL}/users/owner`, { next: { revalidate: 10 } });
+    const res = await serverApiFetch("/users/owner");
     if (!res.ok) return fallbackOwner;
     return await res.json();
   } catch {
@@ -31,7 +28,7 @@ async function getOwner(): Promise<User> {
 
 async function getPosts() {
   try {
-    const res = await fetch(`${API_URL}/posts?page=1&limit=${PAGE_SIZE}`, { next: { revalidate: 10 } });
+    const res = await serverApiFetch(`/posts?page=1&limit=${PAGE_SIZE}`);
     if (!res.ok) return { data: [], hasMore: false };
     const json = await res.json();
     return { data: json.data || [], hasMore: json.pagination?.hasMore ?? false };
@@ -42,7 +39,7 @@ async function getPosts() {
 
 async function getSettings() {
   try {
-    const res = await fetch(`${API_URL}/settings`, { next: { revalidate: 10 } });
+    const res = await serverApiFetch("/settings");
     if (!res.ok) return null;
     return await res.json();
   } catch {

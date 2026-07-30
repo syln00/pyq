@@ -46,6 +46,7 @@ import { Post, type PostLocation, type PostImage, type PostVideo, type PostDouba
 import { isLivePhoto, getImageSrc } from "@/lib/post-image";
 import { uploadAudio, uploadDirect, uploadImage, uploadVideo, toAbsoluteUrl, toHttps } from "@/lib/upload";
 import { PUBLIC_API_URL } from "@/lib/api-fetch";
+import { logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
 import { splitMotionPhoto } from "@/lib/motion-photo";
 import { useExitAnimation } from "@/lib/use-exit-animation";
 import RichTextEditor from "./RichTextEditor";
@@ -95,12 +96,30 @@ function resolveFriendAvatar(link: { avatar?: string; email?: string }, size = 9
 
 export interface LoggedInUser {
   token: string;
+  id: string;
   nickname: string;
   email: string;
   avatar: string;
   cover: string;
   bio: string;
   website: string;
+  role: "admin" | "visitor";
+  canPublish: boolean;
+}
+
+function loggedInUser(user: SessionUser): LoggedInUser {
+  return {
+    token: "cookie-session",
+    id: user.id,
+    nickname: user.nickname,
+    email: user.email,
+    avatar: user.avatar || "",
+    cover: user.cover || "",
+    bio: user.bio || "",
+    website: user.website || "",
+    role: user.role,
+    canPublish: user.canPublish,
+  };
 }
 
 export default function TopBar({ coverHeight = 300 }: TopBarProps) {
@@ -205,7 +224,7 @@ export default function TopBar({ coverHeight = 300 }: TopBarProps) {
     searchDebounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const res = await fetch(`${API_URL}/posts/search?q=${encodeURIComponent(q)}`);
+        const res = await fetch(`${API_URL}/posts/search?q=${encodeURIComponent(q)}`, { credentials: "include", cache: "no-store" });
         if (res.ok) {
           setSearchResults(await res.json());
         } else {
@@ -323,18 +342,12 @@ export default function TopBar({ coverHeight = 300 }: TopBarProps) {
     };
   }, [coverHeight]);
 
-  // Restore login from localStorage
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    const nickname = localStorage.getItem("admin_nickname");
-    const email = localStorage.getItem("admin_email") || "";
-    const avatar = localStorage.getItem("admin_avatar") || "";
-    const cover = localStorage.getItem("admin_cover") || "";
-    const bio = localStorage.getItem("admin_bio") || "";
-    const website = localStorage.getItem("admin_website") || "";
-    if (token && nickname) {
-      setLoggedIn({ token, nickname, email, avatar, cover, bio, website });
-    }
+    const sync = (user: SessionUser | null) => setLoggedIn(user ? loggedInUser(user) : null);
+    void refreshSessionUser().then(sync);
+    const onAuthChanged = (event: Event) => sync((event as CustomEvent<SessionUser | null>).detail || null);
+    window.addEventListener("pyq-auth-changed", onAuthChanged);
+    return () => window.removeEventListener("pyq-auth-changed", onAuthChanged);
   }, []);
 
   const togglePlay = async () => {
@@ -388,15 +401,8 @@ export default function TopBar({ coverHeight = 300 }: TopBarProps) {
     playTrack(prev);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("admin_token");
-    localStorage.removeItem("admin_nickname");
-    localStorage.removeItem("admin_email");
-    localStorage.removeItem("admin_avatar");
-    localStorage.removeItem("admin_cover");
-    localStorage.removeItem("admin_bio");
-    localStorage.removeItem("admin_website");
-    setLoggedIn(null);
+  const handleLogout = async () => {
+    await logoutSession();
     window.location.reload();
   };
 
@@ -632,8 +638,8 @@ export default function TopBar({ coverHeight = 300 }: TopBarProps) {
             </button>
             )}
 
-            {/* Camera (发布动态) / UserRound (登录) — 移动端最右侧 */}
-            {loggedIn ? (
+            {/* 移动端最右侧：发布者显示发布入口，普通登录用户显示账户入口，访客显示登录入口 */}
+            {loggedIn?.canPublish ? (
               <button
                 type="button"
                 onClick={() => setShowPublish(true)}
@@ -641,6 +647,19 @@ export default function TopBar({ coverHeight = 300 }: TopBarProps) {
                 aria-label="发布动态"
               >
                 <Camera className="h-[18px] w-[18px]" />
+              </button>
+            ) : loggedIn ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setFriendsTab(friendLinks.length === 0 && hasDouban ? "douban" : "friends");
+                  setShowFriends(true);
+                  setShowUserMenu(true);
+                }}
+                className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors lg:hidden ${iconClass}`}
+                aria-label="账户菜单"
+              >
+                <UserRound className="h-[18px] w-[18px]" />
               </button>
             ) : (
               <button
@@ -679,7 +698,7 @@ export default function TopBar({ coverHeight = 300 }: TopBarProps) {
       )}
 
       {/* ===== Publish Modal ===== */}
-      {showPublish && loggedIn && (
+      {showPublish && loggedIn?.canPublish && (
         <PublishModal
           token={loggedIn.token}
           onClose={() => setShowPublish(false)}
@@ -750,7 +769,7 @@ export default function TopBar({ coverHeight = 300 }: TopBarProps) {
                           className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs text-wechat-text transition-colors hover:bg-wechat-hover dark:hover:bg-white/10"
                         >
                           <LayoutDashboard className="h-3.5 w-3.5 text-wechat-time" />
-                          后台管理
+                          {loggedIn.role === "admin" ? "后台管理" : "内容管理"}
                         </button>
                         <div className="h-px bg-wechat-border dark:bg-white/10" />
                         <button
@@ -892,6 +911,7 @@ export function LoginModal({
       const res = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ account, password }),
       });
       const data = await res.json();
@@ -899,22 +919,8 @@ export function LoginModal({
         setError(data.message || "登录失败");
         return;
       }
-      localStorage.setItem("admin_token", data.token);
-      localStorage.setItem("admin_nickname", data.user.nickname);
-      localStorage.setItem("admin_email", data.user.email);
-      localStorage.setItem("admin_avatar", data.user.avatar || "");
-      localStorage.setItem("admin_cover", data.user.cover || "");
-      localStorage.setItem("admin_bio", data.user.bio || "");
-      localStorage.setItem("admin_website", data.user.website || "");
-      onSuccess({
-        token: data.token,
-        nickname: data.user.nickname,
-        email: data.user.email,
-        avatar: data.user.avatar || "",
-        cover: data.user.cover || "",
-        bio: data.user.bio || "",
-        website: data.user.website || "",
-      });
+      setSessionUser(data.user);
+      onSuccess(loggedInUser(data.user));
       handleClose();
     } catch {
       setError("网络错误，请稍后重试");
@@ -1105,8 +1111,8 @@ export function PublishModal({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
+      credentials: "include",
       body: JSON.stringify({ imageMediaId: image.id, videoMediaId: video.id }),
     });
     if (!response.ok) {
@@ -1220,9 +1226,7 @@ export function PublishModal({
     let cancelled = false;
     setMediaLoading(true);
     setMediaPage(1);
-    fetch(`${API_URL}/media?category=image&page=1&limit=${PAGE_SIZE}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    fetch(`${API_URL}/media?category=image&page=1&limit=${PAGE_SIZE}`, { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : { data: [] }))
       .then((data) => {
         if (!cancelled) {
@@ -1244,9 +1248,7 @@ export function PublishModal({
     if (loadingMore || !mediaHasMore) return;
     setLoadingMore(true);
     const nextPage = mediaPage + 1;
-    fetch(`${API_URL}/media?category=image&page=${nextPage}&limit=${PAGE_SIZE}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    fetch(`${API_URL}/media?category=image&page=${nextPage}&limit=${PAGE_SIZE}`, { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : { data: [] }))
       .then((data) => {
         const newItems = data.data || [];
@@ -1347,7 +1349,7 @@ export function PublishModal({
     try {
       const res = await fetch(
         `${API_URL}/url-preview?url=${encodeURIComponent(url)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include", cache: "no-store" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -1377,8 +1379,8 @@ export function PublishModal({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({ url }),
       });
       if (res.ok) {
@@ -1448,16 +1450,15 @@ export function PublishModal({
         method,
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
       if (res.ok) {
         onPublished();
         handleClose();
       } else if (res.status === 401) {
-        localStorage.removeItem("admin_token");
-        localStorage.removeItem("admin_nickname");
+        setSessionUser(null);
         setError("登录已失效，请重新登录");
         setTimeout(() => {
           window.location.reload();

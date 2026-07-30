@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Bell, Link2, MessageSquare, Music, Play, X } from "lucide-react";
 import { actorAvatarUrl } from "@/lib/avatar";
-import { getCurrentUser, CurrentUser } from "@/lib/auth";
+import { getCurrentUser, refreshSessionUser, CurrentUser } from "@/lib/auth";
 import { toAbsoluteUrl } from "@/lib/upload";
 import { useExitAnimation } from "@/lib/use-exit-animation";
 import { useSiteSettings } from "@/lib/site-settings-store";
@@ -118,6 +118,9 @@ export default function AdminNotifications({ variant = "mobile" }: AdminNotifica
   useEffect(() => {
     setMounted(true);
     setUser(getCurrentUser());
+    void refreshSessionUser().then(() => setUser(getCurrentUser()));
+    const onAuthChanged = () => setUser(getCurrentUser());
+    window.addEventListener("pyq-auth-changed", onAuthChanged);
     const saved = localStorage.getItem("notifications_last_read");
     if (saved) setLastReadAt(Number(saved) || 0);
     try {
@@ -126,17 +129,16 @@ export default function AdminNotifications({ variant = "mobile" }: AdminNotifica
     } catch {
       // ignore
     }
+    return () => window.removeEventListener("pyq-auth-changed", onAuthChanged);
   }, []);
 
   // 只有登录博主才能获取通知（分页，每页10条）
   useEffect(() => {
-    if (!user?.isLoggedIn || !user.token) return;
+    if (!user?.isLoggedIn) return;
     setLoading(true);
     setPage(1);
 
-    fetch(`${API_URL}/notifications?page=1&limit=10`, {
-      headers: { Authorization: `Bearer ${user.token}` },
-    })
+    fetch(`${API_URL}/notifications?page=1&limit=10`, { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : { data: [], pagination: { hasMore: false } }))
       .then((data) => {
         setItems(Array.isArray(data.data) ? data.data : []);
@@ -147,14 +149,12 @@ export default function AdminNotifications({ variant = "mobile" }: AdminNotifica
   }, [user]);
 
   const loadMore = async () => {
-    if (loadingRef.current || !hasMore || !user?.token) return;
+    if (loadingRef.current || !hasMore || !user?.isLoggedIn) return;
     loadingRef.current = true;
     setLoadingMore(true);
     const nextPage = page + 1;
     try {
-      const res = await fetch(`${API_URL}/notifications?page=${nextPage}&limit=10`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
+      const res = await fetch(`${API_URL}/notifications?page=${nextPage}&limit=10`, { credentials: "include", cache: "no-store" });
       const data = await res.json();
       if (Array.isArray(data.data)) {
         setItems((prev) => [...prev, ...data.data]);

@@ -41,7 +41,7 @@ export default function ArticleListSidebar() {
   const defaultCover = useSiteSettings((s) => s.defaultCover);
 
   useEffect(() => {
-    fetch(`${API_URL}/posts?type=article&page=1&limit=20`)
+    fetch(`${API_URL}/posts?type=article&page=1&limit=20`, { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : { data: [] }))
       .then((data) => setArticles(data.data || []))
       .catch(() => {})

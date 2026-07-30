@@ -17,11 +17,11 @@ export default function EditPostModal() {
   if (!mounted || !post) return null;
 
   const user = getCurrentUser();
-  if (!user?.isLoggedIn || !user.token) return null;
+  if (!user?.isLoggedIn) return null;
 
   return (
     <PublishModal
-      token={user.token}
+      token="cookie-session"
       editPost={post}
       onClose={close}
       onPublished={() => {

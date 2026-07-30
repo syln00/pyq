@@ -132,15 +132,12 @@ export default function PostCard({ post, index, onDelete }: PostCardProps) {
 
   const handlePin = async () => {
     const user = getCurrentUser();
-    if (!user?.isLoggedIn || !user.token) return;
+    if (!user?.isLoggedIn) return;
     const next = !pinned;
     try {
       const res = await fetch(`${API_URL}/posts/${post.id}/pin`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${user.token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ pinned: next }),
       });
@@ -164,9 +161,6 @@ export default function PostCard({ post, index, onDelete }: PostCardProps) {
     const email = user?.email || "";
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (user?.isLoggedIn && user.token) {
-        headers.Authorization = `Bearer ${user.token}`;
-      }
       const res = await fetch(`${API_URL}/posts/${post.id}/likes`, {
         method: "POST",
         headers,

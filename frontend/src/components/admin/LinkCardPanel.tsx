@@ -48,7 +48,7 @@ export default function LinkCardPanel({
     try {
       const res = await fetch(
         `${API_URL}/url-preview?url=${encodeURIComponent(trimmed)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include", cache: "no-store" }
       );
       if (res.ok) {
         const data = await res.json();

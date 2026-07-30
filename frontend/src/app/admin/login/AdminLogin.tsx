@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PenLine, User, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
+import { setSessionUser } from "@/lib/auth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
 
@@ -23,6 +24,7 @@ export default function AdminLogin() {
       const res = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ account, password }),
       });
       const data = await res.json();
@@ -32,8 +34,8 @@ export default function AdminLogin() {
         return;
       }
 
-      localStorage.setItem("admin_token", data.token);
-      router.replace("/admin");
+      setSessionUser(data.user);
+      router.replace(data.user.role === "admin" ? "/admin" : "/admin/posts");
     } catch {
       setError("网络错误，请检查后端服务");
     } finally {

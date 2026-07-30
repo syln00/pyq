@@ -1,14 +1,11 @@
+import { clearSessionUser, getSessionUser } from "./auth";
+
 export const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 function getBackendOrigin() {
   return (process.env.BACKEND_URL || "http://localhost:4000").replace(/\/+$/, "");
 }
 
-/**
- * 获取 API URL。
- * - 客户端：返回 NEXT_PUBLIC_API_URL（/api 相对路径，通过 rewrites 代理）
- * - SSR：如果 API_URL 是相对路径，用 BACKEND_URL 构造绝对 URL（Node.js fetch 需要绝对 URL）
- */
 export function getApiUrl() {
   if (typeof window === "undefined" && PUBLIC_API_URL.startsWith("/")) {
     return `${getBackendOrigin()}${PUBLIC_API_URL}`;
@@ -16,37 +13,27 @@ export function getApiUrl() {
   return PUBLIC_API_URL;
 }
 
+/** @deprecated Authentication is held in an HttpOnly cookie. */
 export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("admin_token");
+  return getSessionUser() ? "cookie-session" : null;
 }
 
 export function clearAuth() {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem("admin_token");
-  localStorage.removeItem("admin_nickname");
-  localStorage.removeItem("admin_email");
-  localStorage.removeItem("admin_avatar");
-  localStorage.removeItem("admin_cover");
-  localStorage.removeItem("admin_bio");
-  localStorage.removeItem("admin_website");
+  clearSessionUser();
 }
 
 export async function apiFetch(path: string, options?: RequestInit): Promise<Response> {
-  const token = getToken();
   const res = await fetch(`${getApiUrl()}${path}`, {
     ...options,
-    headers: {
-      ...(options?.headers || {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    credentials: "include",
+    cache: options?.cache ?? "no-store",
+    headers: { ...(options?.headers || {}) },
   });
   if (res.status === 401) {
-    clearAuth();
-    if (typeof window !== "undefined") {
-      window.location.href = "/";
+    clearSessionUser();
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && window.location.pathname !== "/admin/login") {
+      window.location.href = "/admin/login";
     }
-    throw new Error("Unauthorized");
   }
   return res;
 }

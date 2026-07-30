@@ -5,6 +5,7 @@ import GlobalMusicManager from "@/components/GlobalMusicManager";
 import MusicFloatingCard from "@/components/MusicFloatingCard";
 import LoadingBar from "@/components/LoadingBar";
 import EmojiFadeController from "@/components/EmojiFadeController";
+import SessionBootstrap from "@/components/SessionBootstrap";
 import { getApiUrl } from "@/lib/api-fetch";
 
 const API_URL = getApiUrl();
@@ -147,6 +148,7 @@ export default async function RootLayout({
         <div id="initial-loading-bar" />
         <LoadingBar />
         <ThemeProvider>
+          <SessionBootstrap />
           <GlobalMusicManager />
           <MusicFloatingCard />
           {children}

@@ -311,9 +311,6 @@ export default function ArticleCommentSection({
     errorSetter("");
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (currentUser?.isLoggedIn && currentUser.token) {
-        headers.Authorization = `Bearer ${currentUser.token}`;
-      }
       const res = await fetch(`${API_URL}${apiBase}/comments`, {
         method: "POST",
         headers,
@@ -519,9 +516,6 @@ export default function ArticleCommentSection({
       const name = user?.nickname || "访客";
       const email = user?.email || "";
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (user?.isLoggedIn && user.token) {
-        headers.Authorization = `Bearer ${user.token}`;
-      }
       const res = await fetch(`${API_URL}${apiBase}/comments/${commentId}/likes`, {
         method: "POST",
         headers,

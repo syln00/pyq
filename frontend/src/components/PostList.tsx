@@ -46,10 +46,8 @@ export default function PostList({ initialPosts, initialHasMore, initialPage }: 
     fetchAds();
   }, [fetchSettings, fetchAds]);
 
-  // 客户端首次加载：用真实 IP/email/cookie/token 获取 meLiked 状态，覆盖 SSR 数据
-  // SSR 拿不到 localStorage token 和客户端 cookie，初始 HTML 中 meLiked 全是 false，
-  // 客户端 hydrate 后重新拉取。关键：登录用户必须带 Authorization header，
-  // 否则后端走 cookie visitorId 维度，但该维度点赞已被 migrateLikesToUserId 升级，导致 meLiked 错误。
+  // 客户端首次加载：携带真实会话 Cookie 和访客信息刷新 meLiked 状态。
+  // SSR 已转发请求 Cookie；这里仍会在 hydrate 后重新拉取，以同步登录、退出等客户端状态变化。
   useEffect(() => {
     const email = (typeof window !== "undefined" && localStorage.getItem("visitor_email")) || "";
     const url = `${API_URL}/posts?page=1&limit=${PAGE_SIZE}${email ? `&email=${encodeURIComponent(email)}` : ""}`;

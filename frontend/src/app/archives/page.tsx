@@ -11,16 +11,14 @@ import ProfileTimeline from "@/components/profile/ProfileTimeline";
 import ProfileFadeIn from "@/components/profile/ProfileFadeIn";
 import ProfileScrollRestoration from "@/components/profile/ProfileScrollRestoration";
 import { owner as fallbackOwner, User } from "@/lib/mock-data";
-import { getApiUrl } from "@/lib/api-fetch";
-
-const API_URL = getApiUrl();
+import { serverApiFetch } from "@/lib/server-api";
 const PAGE_SIZE = 10;
 
-export const revalidate = 10;
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   try {
-    const res = await fetch(`${API_URL}/users/owner`, { next: { revalidate: 10 } });
+    const res = await serverApiFetch("/users/owner");
     const owner: User = res.ok ? await res.json() : fallbackOwner;
     return {
       title: `${owner.nickname} 的归档`,
@@ -34,7 +32,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 async function getOwner(): Promise<User> {
   try {
-    const res = await fetch(`${API_URL}/users/owner`, { next: { revalidate: 10 } });
+    const res = await serverApiFetch("/users/owner");
     if (!res.ok) return fallbackOwner;
     return await res.json();
   } catch {
@@ -44,10 +42,7 @@ async function getOwner(): Promise<User> {
 
 async function getOwnerPosts(ownerId: string) {
   try {
-    const res = await fetch(
-      `${API_URL}/posts?userId=${ownerId}&page=1&limit=${PAGE_SIZE}`,
-      { next: { revalidate: 10 } }
-    );
+    const res = await serverApiFetch(`/posts?userId=${ownerId}&page=1&limit=${PAGE_SIZE}`);
     if (!res.ok) return { data: [], hasMore: false };
     const json = await res.json();
     return { data: json.data || [], hasMore: json.pagination?.hasMore ?? false };
@@ -58,7 +53,7 @@ async function getOwnerPosts(ownerId: string) {
 
 async function getSettings() {
   try {
-    const res = await fetch(`${API_URL}/settings`, { next: { revalidate: 10 } });
+    const res = await serverApiFetch("/settings");
     if (!res.ok) return null;
     return await res.json();
   } catch {

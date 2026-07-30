@@ -11,17 +11,13 @@ import EditPostModal from "@/components/EditPostModal";
 import ArticleReader from "@/components/article/ArticleReader";
 import ProfileFadeIn from "@/components/profile/ProfileFadeIn";
 import { owner as fallbackOwner, User, Post } from "@/lib/mock-data";
-import { getApiUrl } from "@/lib/api-fetch";
+import { serverApiFetch } from "@/lib/server-api";
 
-const API_URL = getApiUrl();
-
-export const revalidate = 10;
+export const dynamic = "force-dynamic";
 
 async function getPost(id: string): Promise<Post | null> {
   try {
-    const res = await fetch(`${API_URL}/posts/${id}`, {
-      next: { revalidate: 10 },
-    });
+    const res = await serverApiFetch(`/posts/${id}`);
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -31,7 +27,7 @@ async function getPost(id: string): Promise<Post | null> {
 
 async function getOwner(): Promise<User> {
   try {
-    const res = await fetch(`${API_URL}/users/owner`, { next: { revalidate: 10 } });
+    const res = await serverApiFetch("/users/owner");
     if (!res.ok) return fallbackOwner;
     return await res.json();
   } catch {

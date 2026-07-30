@@ -93,10 +93,7 @@ export default function PostDetail({ post }: PostDetailProps) {
     setComments(post.comments || []);
   }, [post.comments]);
 
-  // 客户端首次加载：用真实 cookie/token 获取 meLiked 状态，覆盖 SSR 数据
-  // SSR 拿不到 localStorage token，初始 HTML 中 meLiked 可能不准（登录用户走 cookie visitorId 维度
-  // 但该维度点赞已被 migrateLikesToUserId 升级，导致 meLiked 错误）。
-  // 必须带 Authorization header 让后端识别登录用户，走 userId 维度查询。
+  // 客户端首次加载：携带真实会话 Cookie 和访客信息刷新点赞、评论状态。
   useEffect(() => {
     const email = (typeof window !== "undefined" && localStorage.getItem("visitor_email")) || "";
     const url = `${API_URL}/posts/${post.id}${email ? `?email=${encodeURIComponent(email)}` : ""}`;
@@ -169,9 +166,6 @@ export default function PostDetail({ post }: PostDetailProps) {
     const email = user?.email || "";
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (user?.isLoggedIn && user.token) {
-        headers.Authorization = `Bearer ${user.token}`;
-      }
       const res = await fetch(`${API_URL}/posts/${post.id}/likes`, {
         method: "POST",
         headers,
@@ -202,15 +196,13 @@ export default function PostDetail({ post }: PostDetailProps) {
 
   const handlePin = async () => {
     const user = getCurrentUser();
-    if (!user?.isLoggedIn || !user.token) return;
+    if (!user?.isLoggedIn) return;
     const next = !pinned;
     try {
       const res = await fetch(`${API_URL}/posts/${post.id}/pin`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${user.token}`,
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ pinned: next }),
       });
       if (res.ok) setPinned(next);

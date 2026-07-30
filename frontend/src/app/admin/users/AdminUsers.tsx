@@ -24,6 +24,7 @@ import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { resolveAvatar } from "@/lib/avatar";
 import { apiFetch, getToken } from "@/lib/api-fetch";
 import MediaPicker from "@/components/MediaPicker";
+import { refreshSessionUser } from "@/lib/auth";
 
 interface User {
   id: string;
@@ -391,13 +392,7 @@ export default function AdminUsers() {
     });
 
     if (res.ok && settingsRes.ok) {
-      // Sync localStorage so TopBar shows updated profile without re-login
-      localStorage.setItem("admin_nickname", form.nickname);
-      localStorage.setItem("admin_email", form.email);
-      localStorage.setItem("admin_avatar", form.avatar);
-      localStorage.setItem("admin_cover", coverSynced);
-      localStorage.setItem("admin_bio", form.bio);
-      localStorage.setItem("admin_website", form.website);
+      await refreshSessionUser();
       setForm({ ...form, cover: coverSynced });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);

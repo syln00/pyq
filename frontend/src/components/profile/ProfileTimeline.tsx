@@ -55,9 +55,7 @@ export default function ProfileTimeline({
     fetchSettings();
   }, [fetchSettings]);
 
-  // 客户端首次加载：用真实 IP/email/cookie/token 获取 meLiked 状态，覆盖 SSR 数据
-  // 关键：登录用户必须带 Authorization header，否则后端走 cookie visitorId 维度
-  // 但该维度点赞已被 migrateLikesToUserId 升级，导致 meLiked 错误
+  // 客户端首次加载：携带真实会话 Cookie 和访客信息刷新 meLiked 状态。
   useEffect(() => {
     const email = (typeof window !== "undefined" && localStorage.getItem("visitor_email")) || "";
     const url = `${API_URL}/posts?userId=${ownerId}&page=1&limit=${PAGE_SIZE}${email ? `&email=${encodeURIComponent(email)}` : ""}`;

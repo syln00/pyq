@@ -95,9 +95,6 @@ export default function ArticleReader({ post }: ArticleReaderProps) {
     const email = user?.email || "";
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (user?.isLoggedIn && user.token) {
-        headers.Authorization = `Bearer ${user.token}`;
-      }
       const res = await fetch(`${API_URL}/posts/${post.id}/likes`, {
         method: "POST",
         headers,

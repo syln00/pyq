@@ -291,6 +291,17 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response) =>
   if (categoryParam) {
     filters.category = categoryParam;
   }
+  const requestedUserId = req.query.userId;
+  if (typeof requestedUserId === "string" && requestedUserId) {
+    filters.userId = requestedUserId;
+  }
+  if (req.query.mine === "1") {
+    if (!req.user) {
+      res.status(401).json({ message: "请先登录" });
+      return;
+    }
+    filters.userId = req.user.id;
+  }
 
   const { count, rows: posts } = await Post.findAndCountAll({
     distinct: true,

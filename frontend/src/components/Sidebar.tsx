@@ -10,6 +10,7 @@ import { toAbsoluteUrl } from "@/lib/upload";
 import { PublishModal, type LoggedInUser } from "@/components/TopBar";
 import { SocialIcon, getSocialPlatform } from "@/components/SocialIcons";
 import AdminNotifications from "@/components/AdminNotifications";
+import { logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
 
 interface FriendLink {
   id: string;
@@ -177,29 +178,27 @@ export default function Sidebar({ owner }: SidebarProps) {
       .finally(() => setSettingsLoaded(true));
   }, []);
 
-  // Restore login from localStorage
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    const nickname = localStorage.getItem("admin_nickname");
-    const email = localStorage.getItem("admin_email") || "";
-    const avatar = localStorage.getItem("admin_avatar") || "";
-    const cover = localStorage.getItem("admin_cover") || "";
-    const bio = localStorage.getItem("admin_bio") || "";
-    const website = localStorage.getItem("admin_website") || "";
-    if (token && nickname) {
-      setLoggedIn({ token, nickname, email, avatar, cover, bio, website });
-    }
+    const sync = (user: SessionUser | null) => setLoggedIn(user ? {
+      token: "cookie-session",
+      id: user.id,
+      nickname: user.nickname,
+      email: user.email,
+      avatar: user.avatar || "",
+      cover: user.cover || "",
+      bio: user.bio || "",
+      website: user.website || "",
+      role: user.role,
+      canPublish: user.canPublish,
+    } : null);
+    void refreshSessionUser().then(sync);
+    const onAuthChanged = (event: Event) => sync((event as CustomEvent<SessionUser | null>).detail || null);
+    window.addEventListener("pyq-auth-changed", onAuthChanged);
+    return () => window.removeEventListener("pyq-auth-changed", onAuthChanged);
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem("admin_token");
-    localStorage.removeItem("admin_nickname");
-    localStorage.removeItem("admin_email");
-    localStorage.removeItem("admin_avatar");
-    localStorage.removeItem("admin_cover");
-    localStorage.removeItem("admin_bio");
-    localStorage.removeItem("admin_website");
-    setLoggedIn(null);
+  const handleLogout = async () => {
+    await logoutSession();
     window.location.reload();
   };
 
@@ -214,6 +213,7 @@ export default function Sidebar({ owner }: SidebarProps) {
       const res = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ account, password }),
       });
       const data = await res.json();
@@ -221,21 +221,18 @@ export default function Sidebar({ owner }: SidebarProps) {
         setLoginError(data.message || "登录失败");
         return;
       }
-      localStorage.setItem("admin_token", data.token);
-      localStorage.setItem("admin_nickname", data.user.nickname);
-      localStorage.setItem("admin_email", data.user.email);
-      localStorage.setItem("admin_avatar", data.user.avatar || "");
-      localStorage.setItem("admin_cover", data.user.cover || "");
-      localStorage.setItem("admin_bio", data.user.bio || "");
-      localStorage.setItem("admin_website", data.user.website || "");
+      setSessionUser(data.user);
       setLoggedIn({
-        token: data.token,
+        token: "cookie-session",
+        id: data.user.id,
         nickname: data.user.nickname,
         email: data.user.email,
         avatar: data.user.avatar || "",
         cover: data.user.cover || "",
         bio: data.user.bio || "",
         website: data.user.website || "",
+        role: data.user.role,
+        canPublish: data.user.canPublish,
       });
       setShowLogin(false);
       setAccount("");
@@ -320,14 +317,14 @@ export default function Sidebar({ owner }: SidebarProps) {
           <div className={socialLinks.length > 0 ? "mt-3 border-t border-black/5 pt-3 dark:border-white/5" : ""}>
             {loggedIn ? (
               <div className="flex items-center gap-2">
-                <button
+                {loggedIn.canPublish && <button
                   type="button"
                   onClick={() => setShowPublish(true)}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-wechat-nickname/10 px-3 py-2 text-xs font-medium text-wechat-nickname transition-colors hover:bg-wechat-nickname/20"
                 >
                   <Camera className="h-3.5 w-3.5" />
                   发表动态
-                </button>
+                </button>}
                 {/* 三点菜单：后台管理 + 退出登录 */}
                 <div ref={userMenuRef} className="relative">
                   <button
@@ -349,7 +346,7 @@ export default function Sidebar({ owner }: SidebarProps) {
                         className="flex items-center gap-2 px-3.5 py-2.5 text-xs text-wechat-text transition-colors hover:bg-wechat-hover dark:hover:bg-white/10"
                       >
                         <LayoutDashboard className="h-3.5 w-3.5" />
-                        后台管理
+                        {loggedIn.role === "admin" ? "后台管理" : "内容管理"}
                       </Link>
                       <div className="h-px bg-wechat-border dark:bg-white/10" />
                       <button
@@ -538,7 +535,7 @@ export default function Sidebar({ owner }: SidebarProps) {
       </div>
 
       {/* Publish Modal */}
-      {showPublish && loggedIn && (
+      {showPublish && loggedIn?.canPublish && (
         <PublishModal
           token={loggedIn.token}
           onClose={() => setShowPublish(false)}

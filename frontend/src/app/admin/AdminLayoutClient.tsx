@@ -12,6 +12,7 @@ import { useExitAnimation } from "@/lib/use-exit-animation";
 import { useSiteSettings } from "@/lib/site-settings-store";
 import { useMusicPlayer } from "@/lib/music-player-store";
 import { toAbsoluteUrl } from "@/lib/upload";
+import { logoutSession, refreshSessionUser, type SessionUser } from "@/lib/auth";
 
 export default function AdminLayoutClient({
   children,
@@ -21,6 +22,7 @@ export default function AdminLayoutClient({
   const router = useRouter();
   const pathname = usePathname();
   const [loading, setLoading] = useState(true);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -35,13 +37,23 @@ export default function AdminLayoutClient({
   const hasMusic = !!(activePostMusic || bgMusic || musicUrl || playlist.length);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
-      router.replace("/");
+    if (pathname === "/admin/login") {
+      setLoading(false);
+      return;
     }
-    setLoading(false);
-    if (token) fetchSettings();
-  }, [router, fetchSettings]);
+    void refreshSessionUser().then((user) => {
+      setSessionUser(user);
+      if (!user) router.replace("/admin/login");
+      else if (user.role !== "admin" && !user.canPublish) router.replace("/");
+      else {
+        if (user.role !== "admin" && (pathname === "/admin" || !["/admin/posts", "/admin/articles", "/admin/media"].some((path) => pathname.startsWith(path)))) {
+          router.replace("/admin/posts");
+        }
+        fetchSettings();
+      }
+      setLoading(false);
+    });
+  }, [router, fetchSettings, pathname]);
 
   // 侧栏收缩状态持久化
   useEffect(() => {
@@ -81,7 +93,7 @@ export default function AdminLayoutClient({
   }
 
   // 分组导航：仪表盘独立 + 内容管理组 + 设置组
-  const navGroups = [
+  const adminNavGroups = [
     {
       label: null as string | null,
       items: [{ href: "/admin", label: "仪表盘", icon: LayoutDashboard }],
@@ -111,29 +123,35 @@ export default function AdminLayoutClient({
       items: [
         { href: "/admin/users", label: "个人资料", icon: User },
         { href: "/admin/friends", label: "友情链接", icon: BookUser },
-        { href: "/admin/music", label: "R2 音乐歌单", icon: Music },
+        { href: "/admin/music", label: "S3 音乐歌单", icon: Music },
         { href: "/admin/storage", label: "云端存储", icon: Cloud },
         { href: "/admin/settings", label: "网站设置", icon: Settings2 },
       ],
     },
   ];
+  const navGroups = sessionUser?.role === "admin"
+    ? adminNavGroups
+    : [{
+        label: "内容管理",
+        items: [
+          { href: "/admin/posts", label: "我的动态", icon: FileText },
+          { href: "/admin/articles", label: "我的文章", icon: BookText },
+          { href: "/admin/media", label: "我的媒体", icon: Images },
+        ],
+      }];
   // 扁平列表（移动端底部导航 + 页面标题检测用）
   const nav = navGroups.flatMap((g) => g.items);
 
-  const handleLogout = () => {
-    localStorage.removeItem("admin_token");
-    localStorage.removeItem("admin_nickname");
-    localStorage.removeItem("admin_email");
-    localStorage.removeItem("admin_avatar");
-    localStorage.removeItem("admin_cover");
-    localStorage.removeItem("admin_bio");
-    localStorage.removeItem("admin_website");
-    router.replace("/");
+  const handleLogout = async () => {
+    await logoutSession();
+    router.replace("/admin/login");
   };
 
   // 当前页面标题
   const currentNav = nav.find((n) => pathname === n.href || (n.href !== "/admin" && pathname.startsWith(n.href)));
   const currentPageTitle = currentNav?.label || "管理后台";
+
+  if (pathname === "/admin/login") return <>{children}</>;
 
   return (
     <div className="min-h-screen bg-adm-bg">
