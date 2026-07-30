@@ -18,7 +18,7 @@ export interface UploadedMedia {
   id: string;
   filename: string;
   url: string;
-  storageType: "r2";
+  storageType: "s3" | "r2";
   mimeType: string;
   size: number;
   category: "image" | "video" | "audio" | "file";
@@ -70,25 +70,25 @@ async function readError(res: Response, fallback: string) {
   return typeof data?.message === "string" ? data.message : fallback;
 }
 
-async function readR2Error(res: Response): Promise<string> {
+async function readS3Error(res: Response): Promise<string> {
   const text = await res.text().catch(() => "");
   const code = text.match(/<Code>([^<]+)<\/Code>/i)?.[1];
   const message = text.match(/<Message>([^<]+)<\/Message>/i)?.[1];
   if (code === "SignatureDoesNotMatch" || code === "RequestExpired") {
-    return "R2 上传签名已失效或请求参数不匹配，请重新选择文件后重试。";
+    return "S3 上传签名已失效或请求参数不匹配，请重新选择文件后重试。";
   }
-  if (code === "AccessDenied") return "R2 拒绝了上传请求，请检查存储桶权限和上传签名。";
-  if (message) return `R2 拒绝上传：${message}`;
-  return `R2 直传失败（HTTP ${res.status}）。`;
+  if (code === "AccessDenied") return "S3 拒绝了上传请求，请检查存储桶权限和上传签名。";
+  if (message) return `S3 拒绝上传：${message}`;
+  return `S3 直传失败（HTTP ${res.status}）。`;
 }
 
 /**
- * Requests a backend-authorized upload intent, sends file bytes directly to R2,
- * then confirms the server-validated object. The JWT is never sent to R2.
+ * Requests a cookie-authorized upload intent, sends file bytes directly to S3,
+ * then confirms the server-validated object. The session cookie is never sent to S3.
  */
 export async function uploadDirect(
   file: File,
-  token: string,
+  _token: string,
   kind: DirectUploadKind,
   options: DirectUploadOptions = {}
 ): Promise<UploadedMedia> {
@@ -100,8 +100,8 @@ export async function uploadDirect(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
+      credentials: "include",
       body: JSON.stringify({ filename: file.name, mimeType, kind }),
       signal: options.signal,
     });
@@ -130,12 +130,12 @@ export async function uploadDirect(
   } catch {
     throw new DirectUploadError(
       "network",
-      "浏览器无法连接 R2 上传地址。请检查 R2 存储桶 CORS 是否允许当前站点的 PUT 请求，以及网络连接。"
+      "浏览器无法连接 S3 上传地址。请检查存储桶 CORS 是否允许当前站点的 PUT 请求，以及网络连接。"
     );
   }
   if (!put.ok) {
     const requestId = put.headers.get("cf-ray") || put.headers.get("x-amz-request-id") || undefined;
-    throw new DirectUploadError("put", await readR2Error(put), put.status, requestId);
+    throw new DirectUploadError("put", await readS3Error(put), put.status, requestId);
   }
   options.onProgress?.(100);
 
@@ -145,13 +145,13 @@ export async function uploadDirect(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
+      credentials: "include",
       body: JSON.stringify({ intentId }),
       signal: options.signal,
     });
   } catch {
-    throw new DirectUploadError("network", "文件已上传到 R2，但无法连接确认服务；请检查网络后重试。");
+    throw new DirectUploadError("network", "文件已上传到 S3，但无法连接确认服务；请检查网络后重试。");
   }
   if (!confirm.ok) {
     throw new DirectUploadError("confirm", await readError(confirm, "确认上传失败"), confirm.status);
