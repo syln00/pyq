@@ -22,6 +22,7 @@ import {
 } from "../services/storage-service";
 import { deleteObject, downloadObject, statObject } from "../services/s3-service";
 import { extractMotionPhoto } from "../services/motion-photo";
+import { generateImagePreviewSafely } from "../services/media-preview-service";
 
 const router = Router();
 
@@ -236,6 +237,8 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
     if (!key.startsWith("media/")) throw new Error("对象路径无效");
     const object = await statObject(key);
     if (!object) throw new Error("未找到已上传的对象");
+    const approvedMimeType = object.contentType || mimeType || "application/octet-stream";
+    const preview = await generateImagePreviewSafely(key, approvedMimeType);
     const mediaId = uuidv4();
     const url = mediaContentPath(mediaId);
     const media = await Media.create({
@@ -243,9 +246,12 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
       filename: filename || key,
       url,
       objectKey: key,
+      previewObjectKey: preview.previewObjectKey,
+      width: preview.width,
+      height: preview.height,
       storageType: "s3",
       accessClass: "owner_only",
-      mimeType: object.contentType || mimeType || "application/octet-stream",
+      mimeType: approvedMimeType,
       kind: mimeType?.startsWith("audio/") ? "audio" : mimeType?.startsWith("image/") ? "image" : mimeType?.startsWith("video/") ? "video" : "file",
       size: object.size || Number(size) || 0,
       uploaderId: req.user!.id,
@@ -291,6 +297,7 @@ router.post("/motion-photo/confirm", authenticate, requirePublisher, async (req:
       });
     } else {
       // 非动态照片：直接把已上传的原文件登记为普通图片
+      const preview = await generateImagePreviewSafely(key, "image/jpeg", buffer);
       const mediaId = uuidv4();
       const url = mediaContentPath(mediaId);
       const media = await Media.create({
@@ -298,6 +305,9 @@ router.post("/motion-photo/confirm", authenticate, requirePublisher, async (req:
         filename: filename || key,
         url,
         objectKey: key,
+        previewObjectKey: preview.previewObjectKey,
+        width: preview.width,
+        height: preview.height,
         storageType: "s3",
         accessClass: "owner_only",
         mimeType: "image/jpeg",

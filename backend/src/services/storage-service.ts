@@ -12,6 +12,7 @@ import {
   statObject,
   uploadObject,
 } from "./s3-service";
+import { ensureMediaPreview, generateImagePreviewSafely } from "./media-preview-service";
 
 export function mediaContentPath(mediaId: string) {
   return `/api/media/${mediaId}/content`;
@@ -84,6 +85,7 @@ export async function storeFileAndRecordMedia(
         await uploadObject(buffer, existingKey, mimeType);
         await existing.update({ objectKey: existingKey, storageType: "s3", size: buffer.length, mimeType });
       }
+      await ensureMediaPreview(existing, buffer);
       return {
         url: mediaContentPath(existing.id),
         objectKey: existingKey,
@@ -96,6 +98,7 @@ export async function storeFileAndRecordMedia(
 
   const mediaId = uuidv4();
   const { objectKey, storageType } = await storeBuffer(buffer, originalName, mimeType, prefix);
+  const preview = await generateImagePreviewSafely(objectKey, mimeType, buffer);
   const url = mediaContentPath(mediaId);
   try {
     await Media.create({
@@ -103,6 +106,9 @@ export async function storeFileAndRecordMedia(
       filename: originalName,
       url,
       objectKey,
+      previewObjectKey: preview.previewObjectKey,
+      width: preview.width,
+      height: preview.height,
       contentHash,
       storageType,
       accessClass: "owner_only",
@@ -112,10 +118,14 @@ export async function storeFileAndRecordMedia(
       uploaderId,
     });
   } catch (error) {
-    await deleteObject(objectKey);
+    await Promise.all([
+      deleteObject(objectKey),
+      preview.previewObjectKey ? deleteObject(preview.previewObjectKey) : Promise.resolve(false),
+    ]);
     if (contentHash && error instanceof UniqueConstraintError) {
       const existing = await findReusableMedia(uploaderId, contentHash, kind, buffer.length);
       if (existing) {
+        await ensureMediaPreview(existing, buffer);
         return {
           url: mediaContentPath(existing.id),
           objectKey: existing.objectKey || extractObjectKey(existing.url),
@@ -140,10 +150,15 @@ export async function createPresignedUpload(
   return createPresignedUploadForKey(objectKey, mimeType);
 }
 
-export async function deleteStoredFile(media: Pick<Media, "objectKey" | "url" | "storageType">): Promise<void> {
+export async function deleteStoredFile(
+  media: Pick<Media, "objectKey" | "previewObjectKey" | "url" | "storageType">
+): Promise<void> {
   if (media.storageType !== "s3" && media.storageType !== "r2") return;
   const objectKey = media.objectKey || extractObjectKey(media.url);
-  if (objectKey) await deleteObject(objectKey);
+  await Promise.all([
+    objectKey ? deleteObject(objectKey) : Promise.resolve(false),
+    media.previewObjectKey ? deleteObject(media.previewObjectKey) : Promise.resolve(false),
+  ]);
 }
 
 export { isS3Ready };

@@ -24,6 +24,7 @@ import {
   statObject,
 } from "../services/s3-service";
 import { canViewPost } from "../services/post-access-service";
+import { ensureMediaPreview, generateImagePreviewSafely } from "../services/media-preview-service";
 
 const router = Router();
 
@@ -96,6 +97,8 @@ function formatMedia(media: any) {
     storageType: media.storageType,
     mimeType: media.mimeType,
     size: Number(media.size),
+    width: media.width == null ? null : Number(media.width),
+    height: media.height == null ? null : Number(media.height),
     category: getMediaCategory(media.mimeType),
     kind: media.kind || getMediaCategory(media.mimeType),
     uploaderId: media.uploaderId,
@@ -284,6 +287,7 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
             size: object.size,
           });
         }
+        await ensureMediaPreview(existing);
         await intent.update({ status: "confirmed", confirmedAt: new Date() });
         res.status(200).json({ ...formatMedia(existing), deduplicated: true });
         return;
@@ -291,6 +295,7 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
     }
 
     const objectKey = await promoteObject(intent.stagingKey, intent.finalKey, intent.mimeType);
+    const preview = await generateImagePreviewSafely(objectKey, intent.mimeType);
     const mediaId = uuidv4();
     const url = mediaContentPath(mediaId);
     let media: Media;
@@ -300,6 +305,9 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
         filename: intent.filename,
         url,
         objectKey,
+        previewObjectKey: preview.previewObjectKey,
+        width: preview.width,
+        height: preview.height,
         contentHash,
         storageType: "s3",
         accessClass: "owner_only",
@@ -309,10 +317,14 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
         uploaderId: intent.uploaderId,
       });
     } catch (error) {
-      await deleteObject(objectKey);
+      await Promise.all([
+        deleteObject(objectKey),
+        preview.previewObjectKey ? deleteObject(preview.previewObjectKey) : Promise.resolve(false),
+      ]);
       if (contentHash && error instanceof UniqueConstraintError) {
         const existing = await findReusableMedia(intent.uploaderId, contentHash, intent.kind, object.size);
         if (existing) {
+          await ensureMediaPreview(existing);
           await intent.update({ status: "confirmed", confirmedAt: new Date() });
           res.status(200).json({ ...formatMedia(existing), deduplicated: true });
           return;

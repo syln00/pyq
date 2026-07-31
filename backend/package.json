@@ -19,6 +19,7 @@
     "db:migrate-privacy-access": "ts-node src/scripts/migrate-privacy-access.ts",
     "storage:check": "ts-node src/scripts/check-media-integrity.ts",
     "storage:backfill-hashes": "ts-node src/scripts/backfill-media-hashes.ts",
+    "storage:backfill-previews": "ts-node src/scripts/backfill-media-previews.ts",
     "music:migrate-r2": "ts-node src/scripts/migrate-r2-music.ts"
   },
   "keywords": [],
@@ -42,6 +43,7 @@
     "mysql2": "^3.22.5",
     "nodemailer": "^9.0.3",
     "sequelize": "^6.37.8",
+    "sharp": "^0.35.3",
     "slugify": "^1.6.9",
     "uuid": "^11.1.1"
   },

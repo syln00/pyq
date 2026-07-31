@@ -70,6 +70,9 @@ export async function migratePrivacyAccess() {
   await addIndex("posts", "posts_visibility_status_published_at", "visibility, status, published_at");
 
   await addColumn("media", "object_key", "VARCHAR(600) NOT NULL DEFAULT ''");
+  await addColumn("media", "preview_object_key", "VARCHAR(600) NOT NULL DEFAULT ''");
+  await addColumn("media", "width", "INT UNSIGNED NULL");
+  await addColumn("media", "height", "INT UNSIGNED NULL");
   await addColumn("media", "content_hash", "VARCHAR(64) NULL");
   await addColumn("media", "access_class", "VARCHAR(20) NOT NULL DEFAULT 'owner_only'");
   await addIndex(

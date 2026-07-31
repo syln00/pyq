@@ -14,6 +14,11 @@ interface MediaAttributes {
   storageType: StorageType;
   /** S3 provider-neutral object key. New records must use this instead of parsing URL. */
   objectKey: string;
+  /** Optional WebP derivative used by timeline and media-library previews. */
+  previewObjectKey: string;
+  /** Display dimensions of the generated preview, or the original when no derivative is needed. */
+  width: number | null;
+  height: number | null;
   /** SHA-256 hex digest used for per-uploader deduplication. */
   contentHash: string | null;
   accessClass: MediaAccessClass;
@@ -39,7 +44,17 @@ interface MediaAttributes {
 
 interface MediaCreationAttributes extends Optional<
   MediaAttributes,
-  "id" | "createdAt" | "updatedAt" | "livePhotoVideo" | "livePhotoImage" | "objectKey" | "contentHash" | "accessClass"
+  | "id"
+  | "createdAt"
+  | "updatedAt"
+  | "livePhotoVideo"
+  | "livePhotoImage"
+  | "objectKey"
+  | "previewObjectKey"
+  | "width"
+  | "height"
+  | "contentHash"
+  | "accessClass"
 > {}
 
 class Media
@@ -51,6 +66,9 @@ class Media
   declare url: string;
   declare storageType: StorageType;
   declare objectKey: string;
+  declare previewObjectKey: string;
+  declare width: number | null;
+  declare height: number | null;
   declare contentHash: string | null;
   declare accessClass: MediaAccessClass;
   declare mimeType: string;
@@ -87,6 +105,21 @@ Media.init(
       type: DataTypes.STRING(600),
       allowNull: false,
       defaultValue: "",
+    },
+    previewObjectKey: {
+      type: DataTypes.STRING(600),
+      allowNull: false,
+      defaultValue: "",
+    },
+    width: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
+    },
+    height: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
     contentHash: {
       type: DataTypes.STRING(64),
