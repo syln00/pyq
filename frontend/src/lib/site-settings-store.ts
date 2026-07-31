@@ -15,6 +15,8 @@ interface SiteSettingsState {
   faviconUrl: string;
   /** 网站域名 */
   domain: string;
+  /** 侧边栏社交链接 JSON */
+  socialLinks: string;
   /** 备案号 */
   beian: string;
   /** 备案号点击跳转链接 */
@@ -32,6 +34,7 @@ interface SiteSettingsState {
   /** 进入网站是否自动播放歌单音乐 */
   musicAutoplay: boolean;
   loaded: boolean;
+  hydrateSettings: (data: unknown) => void;
   fetchSettings: () => Promise<void>;
 }
 
@@ -71,64 +74,91 @@ function cacheDisplay(siteName: string, faviconUrl: string) {
 }
 
 const cachedDisplay = loadCachedDisplay();
+let settingsRequest: Promise<void> | null = null;
 
-export const useSiteSettings = create<SiteSettingsState>((set, get) => ({
-  postCollapseLength: 150,
-  darkModeEnabled: false,
-  darkModeStartTime: "18:00",
-  darkModeEndTime: "06:00",
-  siteName: cachedDisplay.siteName,
-  faviconUrl: cachedDisplay.faviconUrl,
-  domain: "",
-  beian: "",
-  beianUrl: "",
-  footerHtml: "",
-  decorationImage: "",
-  backgroundImages: [],
-  adOnArchives: false,
-  defaultCover: "",
-  musicAutoplay: false,
-  loaded: false,
-  fetchSettings: async () => {
-    if (get().loaded) return;
+function normalizeSettings(value: unknown) {
+  const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  let bgImages: string[] = [];
+  if (Array.isArray(data.backgroundImages)) {
+    bgImages = data.backgroundImages.filter((url): url is string => typeof url === "string");
+  } else if (typeof data.backgroundImages === "string") {
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
-      const res = await fetch(`${API_URL}/settings`, { cache: "no-store" });
-      const data = await res.json();
-      let bgImages: string[] = [];
-      if (Array.isArray(data.backgroundImages)) {
-        bgImages = data.backgroundImages;
-      } else if (typeof data.backgroundImages === "string") {
-        try {
-          const parsed = JSON.parse(data.backgroundImages);
-          if (Array.isArray(parsed)) bgImages = parsed.filter((u) => typeof u === "string");
-        } catch {
-          bgImages = [];
-        }
-      }
-      const finalSiteName = data.siteName ?? DEFAULT_SITE_NAME;
-      const finalFaviconUrl = data.faviconUrl ?? "";
-      set({
-        postCollapseLength: data.postCollapseLength ?? 150,
-        darkModeEnabled: data.darkModeEnabled ?? false,
-        darkModeStartTime: data.darkModeStartTime ?? "18:00",
-        darkModeEndTime: data.darkModeEndTime ?? "06:00",
-        siteName: finalSiteName,
-        faviconUrl: finalFaviconUrl,
-        domain: data.domain ?? "",
-        beian: data.beian ?? "",
-        beianUrl: data.beianUrl ?? "",
-        footerHtml: data.footerHtml ?? "",
-        decorationImage: data.decorationImage ?? "",
-        backgroundImages: bgImages,
-        adOnArchives: data.adOnArchives ?? false,
-        defaultCover: data.defaultCover ?? "",
-        musicAutoplay: data.musicAutoplay ?? false,
-        loaded: true,
-      });
-      cacheDisplay(finalSiteName, finalFaviconUrl);
+      const parsed: unknown = JSON.parse(data.backgroundImages);
+      if (Array.isArray(parsed)) bgImages = parsed.filter((url): url is string => typeof url === "string");
     } catch {
-      set({ loaded: true });
+      bgImages = [];
     }
-  },
-}));
+  }
+
+  const siteName = typeof data.siteName === "string" && data.siteName ? data.siteName : DEFAULT_SITE_NAME;
+  const faviconUrl = typeof data.faviconUrl === "string" ? data.faviconUrl : "";
+  const socialLinks = typeof data.socialLinks === "string"
+    ? data.socialLinks
+    : JSON.stringify(Array.isArray(data.socialLinks) ? data.socialLinks : []);
+
+  return {
+    postCollapseLength: typeof data.postCollapseLength === "number" ? data.postCollapseLength : 150,
+    darkModeEnabled: typeof data.darkModeEnabled === "boolean" ? data.darkModeEnabled : false,
+    darkModeStartTime: typeof data.darkModeStartTime === "string" ? data.darkModeStartTime : "18:00",
+    darkModeEndTime: typeof data.darkModeEndTime === "string" ? data.darkModeEndTime : "06:00",
+    siteName,
+    faviconUrl,
+    domain: typeof data.domain === "string" ? data.domain : "",
+    socialLinks,
+    beian: typeof data.beian === "string" ? data.beian : "",
+    beianUrl: typeof data.beianUrl === "string" ? data.beianUrl : "",
+    footerHtml: typeof data.footerHtml === "string" ? data.footerHtml : "",
+    decorationImage: typeof data.decorationImage === "string" ? data.decorationImage : "",
+    backgroundImages: bgImages,
+    adOnArchives: typeof data.adOnArchives === "boolean" ? data.adOnArchives : false,
+    defaultCover: typeof data.defaultCover === "string" ? data.defaultCover : "",
+    musicAutoplay: typeof data.musicAutoplay === "boolean" ? data.musicAutoplay : false,
+    loaded: true,
+  };
+}
+
+export const useSiteSettings = create<SiteSettingsState>((set, get) => {
+  const hydrateSettings = (data: unknown) => {
+    const normalized = normalizeSettings(data);
+    set(normalized);
+    cacheDisplay(normalized.siteName, normalized.faviconUrl);
+  };
+
+  return {
+    postCollapseLength: 150,
+    darkModeEnabled: false,
+    darkModeStartTime: "18:00",
+    darkModeEndTime: "06:00",
+    siteName: cachedDisplay.siteName,
+    faviconUrl: cachedDisplay.faviconUrl,
+    domain: "",
+    socialLinks: "[]",
+    beian: "",
+    beianUrl: "",
+    footerHtml: "",
+    decorationImage: "",
+    backgroundImages: [],
+    adOnArchives: false,
+    defaultCover: "",
+    musicAutoplay: false,
+    loaded: false,
+    hydrateSettings,
+    fetchSettings: async () => {
+      if (get().loaded) return;
+      if (settingsRequest) return settingsRequest;
+      settingsRequest = (async () => {
+        try {
+          const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
+          const res = await fetch(`${API_URL}/settings`, { cache: "no-store" });
+          if (!res.ok) throw new Error("settings fetch failed");
+          hydrateSettings(await res.json());
+        } catch {
+          set({ loaded: true });
+        } finally {
+          settingsRequest = null;
+        }
+      })();
+      return settingsRequest;
+    },
+  };
+});

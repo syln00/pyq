@@ -11,6 +11,7 @@ import { PublishModal, type LoggedInUser } from "@/components/TopBar";
 import { SocialIcon, getSocialPlatform } from "@/components/SocialIcons";
 import AdminNotifications from "@/components/AdminNotifications";
 import { authErrorMessage, logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
+import { useSiteSettings } from "@/lib/site-settings-store";
 
 interface FriendLink {
   id: string;
@@ -35,14 +36,6 @@ function resolveFriendAvatar(link: { avatar?: string; email?: string }, size = 9
   return "";
 }
 
-interface SiteSettings {
-  siteName: string;
-  description: string;
-  domain: string;
-  faviconUrl: string;
-  socialLinks: string;
-}
-
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
 
 interface SidebarProps {
@@ -57,7 +50,8 @@ export default function Sidebar({ owner }: SidebarProps) {
   const [friendsLoadingMore, setFriendsLoadingMore] = useState(false);
   const friendsSentinelRef = useRef<HTMLDivElement>(null);
   const friendsLoadingRef = useRef(false);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const settingsLoaded = useSiteSettings((state) => state.loaded);
+  const socialLinksSetting = useSiteSettings((state) => state.socialLinks);
   const [loggedIn, setLoggedIn] = useState<LoggedInUser | null>(null);
   const [showLogin, setShowLogin] = useState(false);
   const [showPublish, setShowPublish] = useState(false);
@@ -106,9 +100,6 @@ export default function Sidebar({ owner }: SidebarProps) {
   // 三点菜单（后台管理 / 退出登录）
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
-
-  // Site info from backend /api/settings
-  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
 
   // 点击菜单外部关闭三点菜单
   useEffect(() => {
@@ -167,16 +158,6 @@ export default function Sidebar({ owner }: SidebarProps) {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [loadMoreFriends]);
-
-  useEffect(() => {
-    fetch(`${API_URL}/settings`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: SiteSettings | null) => {
-        if (data) setSiteSettings(data);
-      })
-      .catch(() => {})
-      .finally(() => setSettingsLoaded(true));
-  }, []);
 
   useEffect(() => {
     const sync = (user: SessionUser | null) => setLoggedIn(user ? {
@@ -259,7 +240,7 @@ export default function Sidebar({ owner }: SidebarProps) {
   // Parse social links from JSON
   let socialLinks: Array<{ type: string; url: string }> = [];
   try {
-    const parsed = JSON.parse(siteSettings?.socialLinks || "[]");
+    const parsed = JSON.parse(socialLinksSetting || "[]");
     if (Array.isArray(parsed)) {
       socialLinks = parsed.filter((l: { type: string; url: string }) => l.type);
     }

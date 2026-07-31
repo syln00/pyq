@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PostCard from "@/components/PostCard";
 import { PostCardSkeleton } from "@/components/Skeleton";
-import { useSiteSettings } from "@/lib/site-settings-store";
 import { authFetchHeaders } from "@/lib/auth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
@@ -25,7 +24,6 @@ export default function PostList({ initialPosts, initialHasMore, initialPage }: 
   const [ads, setAds] = useState<any[]>([]);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
-  const fetchSettings = useSiteSettings((s) => s.fetchSettings);
   const router = useRouter();
 
   // 获取所有广告数据，前端每次访问随机选择一条（类似微信朋友圈）
@@ -40,31 +38,10 @@ export default function PostList({ initialPosts, initialHasMore, initialPage }: 
     }
   }, []);
 
-  // 初始化时获取站点配置（折叠字数等）+ 广告
+  // 站点配置由 RootLayout 注入；这里只加载随机广告。
   useEffect(() => {
-    fetchSettings();
-    fetchAds();
-  }, [fetchSettings, fetchAds]);
-
-  // 客户端首次加载：携带真实会话 Cookie 和访客信息刷新 meLiked 状态。
-  // SSR 已转发请求 Cookie；这里仍会在 hydrate 后重新拉取，以同步登录、退出等客户端状态变化。
-  useEffect(() => {
-    const email = (typeof window !== "undefined" && localStorage.getItem("visitor_email")) || "";
-    const url = `${API_URL}/posts?page=1&limit=${PAGE_SIZE}${email ? `&email=${encodeURIComponent(email)}` : ""}`;
-    fetch(url, {
-      cache: "no-store",
-      credentials: "include",
-      headers: authFetchHeaders(),
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (!json?.data) return;
-        setPosts(json.data);
-        setPage(1);
-        setHasMore(json.pagination?.hasMore ?? false);
-      })
-      .catch(() => {});
-  }, []);
+    void fetchAds();
+  }, [fetchAds]);
 
   // 发布/编辑后的即时刷新由客户端重新拉取数据和 router.refresh() 完成；
   // 缓存失效由后端的服务端 revalidate 回调处理，不向浏览器暴露密钥。
@@ -111,7 +88,7 @@ export default function PostList({ initialPosts, initialHasMore, initialPage }: 
       window.removeEventListener("post-published", handler);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [fetchAds, router]);
+  }, [router]);
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current || !hasMore) return;

@@ -6,6 +6,7 @@ import MusicFloatingCard from "@/components/MusicFloatingCard";
 import LoadingBar from "@/components/LoadingBar";
 import EmojiFadeController from "@/components/EmojiFadeController";
 import SessionBootstrap from "@/components/SessionBootstrap";
+import SiteSettingsHydrator from "@/components/SiteSettingsHydrator";
 import { getApiUrl } from "@/lib/api-fetch";
 
 const API_URL = getApiUrl();
@@ -103,10 +104,12 @@ export default async function RootLayout({
   let fontUrl = "";
   let fontFamily = "";
   let rssEnabled = true;
+  let initialSettings: unknown = null;
   try {
     const settingsRes = await fetch(`${API_URL}/settings`, { next: { revalidate: 60 } });
     if (settingsRes.ok) {
       const settings = await settingsRes.json();
+      initialSettings = settings;
       if (settings.fontUrl && settings.fontFamily) {
         fontUrl = settings.fontUrl;
         fontFamily = settings.fontFamily;
@@ -148,6 +151,7 @@ export default async function RootLayout({
         <div id="initial-loading-bar" />
         <LoadingBar />
         <ThemeProvider>
+          <SiteSettingsHydrator settings={initialSettings} />
           <SessionBootstrap />
           <GlobalMusicManager />
           <MusicFloatingCard />
