@@ -8,7 +8,7 @@
 media/2026/07/550e8400-e29b-41d4-a716-446655440000.jpg
 ```
 
-帖子保存媒体 ID，页面使用稳定的 `/api/media/:id/content`。后端根据当前 `S3_*` 配置生成短时下载签名，所以 MinIO、R2 或 NAS 间只要保留相同对象键即可切换。
+帖子保存媒体 ID，页面使用稳定的 `/api/media/:id/content`。后端根据当前 `S3_*` 配置同源流式读取原图和 `previews/` 派生对象，所以 MinIO、R2 或 NAS 间只要保留相同对象键即可切换。
 
 ## 2. rclone 远端
 
@@ -132,8 +132,9 @@ RCLONE_DESTINATION=pyq-minio:pyq-media \
 输出 JSON，包括：
 
 - `missingCount`：数据库存在记录但对象不存在；
+- `missingPreviewCount`：数据库记录了预览对象，但目标存储中不存在；
+- `missingPreviewMetadataCount`：图片尚未记录宽高，可运行预览图回填；
 - `sizeMismatchCount`：数据库大小与对象大小不一致；
 - `stalePostBoundCount`：标记为帖子媒体但当前没有 `post_media` 引用，仅作为警告。
 
-缺失对象或大小不一致会返回非零退出码，可接入定时任务或监控。
-
+缺失原对象、缺失已登记的预览对象或大小不一致会返回非零退出码，可接入定时任务或监控。

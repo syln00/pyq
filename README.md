@@ -12,6 +12,8 @@
 - 普通发布者只能编辑和删除自己的动态、文章与媒体，不能置顶、管理广告或修改全站设置。
 - 发布时间与实际录入时间分离，可选择当前或过去时间，排序、归档、搜索和 RSS 均使用发布时间。
 - 媒体 Bucket 始终私有，数据库只保存 provider-neutral `objectKey`，读取通过稳定的 `/api/media/:id/content` 鉴权地址。
+- 动态列表使用最大宽度 1280px、质量 80 的 WebP 预览图；全屏查看保留原图，音视频读取支持 Range。
+- 媒体下载由主站同源流式转发，公开资源长期缓存、登录可见缓存一天、指定用户缓存十分钟。
 - MinIO、Cloudflare R2 和 NAS S3 使用同一套 `S3_*` 配置，迁移时无需批量改写帖子 URL。
 - 同时支持 Docker 自托管和 Vercel + 托管 MySQL + R2。
 
@@ -124,6 +126,12 @@ docker compose logs --tail=100 db-init minio-init backend frontend caddy
 
 内置 MinIO 会自动清理超过 `S3_STAGING_EXPIRY_DAYS` 的 `staging/` 中断上传，默认保留一天。
 
+如果更新前已经有图片，可以在服务启动后可选执行一次预览图回填。新上传图片会自动生成，无需运行此命令：
+
+```bash
+docker compose run --rm backend node dist/scripts/backfill-media-previews.js
+```
+
 ### 5. 首次登录
 
 访问 `https://pyq.example.com/admin/login`，使用 `.env` 中的 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 登录。首次初始化会创建管理员；管理员已经存在时，修改 `.env` 不会自动修改其密码。
@@ -155,6 +163,12 @@ RCLONE_SOURCE=pyq-minio:pyq-media \
 git pull --ff-only
 docker compose up -d --build
 docker compose ps
+```
+
+如果这次更新前已有图片，建议再运行一次预览图回填：
+
+```bash
+docker compose run --rm backend node dist/scripts/backfill-media-previews.js
 ```
 
 不要执行 `docker compose down -v`，除非明确要删除数据库、媒体对象和 Caddy 证书卷。

@@ -4,8 +4,8 @@
 
 ```text
 浏览器
-  ├─ https://pyq.example.com ── Caddy ── frontend / backend(/api)
-  └─ https://s3.pyq.example.com ─ Caddy ── private MinIO S3 API
+  ├─ https://pyq.example.com ── Caddy ── frontend / backend(/api，媒体同源流式下载)
+  └─ https://s3.pyq.example.com ─ Caddy ── private MinIO S3 API（仅预签名上传）
 
 backend ── MySQL
 backend ── MinIO / R2 / NAS S3
@@ -87,6 +87,12 @@ docker compose logs --tail=100 db-init minio-init backend frontend caddy
 docker compose run --rm backend node dist/scripts/backfill-media-hashes.js
 ```
 
+升级前已有图片时，还可以运行一次预览图回填。它保留原图，并按需增加最大宽度 1280px 的 WebP 派生文件；已经足够小且转换后节省不足 10% 的图片只记录尺寸，不额外保存预览对象：
+
+```bash
+docker compose run --rm backend node dist/scripts/backfill-media-previews.js
+```
+
 ## 5. 数据持久化
 
 Compose 使用以下命名卷：
@@ -110,6 +116,12 @@ docker compose ps
 ```
 
 数据库初始化是 additive、可重复执行的；Compose 会先完成 `db-init` 再启动后端。
+
+更新包含图片预览功能且服务器已有图片时，服务启动后执行一次：
+
+```bash
+docker compose run --rm backend node dist/scripts/backfill-media-previews.js
+```
 
 ## 7. 切换到 R2 或 NAS S3
 
@@ -150,6 +162,8 @@ S3_FORCE_PATH_STYLE=true
 ```
 
 `S3_ENDPOINT` 是后端可访问的地址；`S3_PRESIGN_ENDPOINT` 必须是用户浏览器可访问的地址。两者可以不同。
+
+下载始终由后端通过 `S3_ENDPOINT` 流式读取，再从站点同源 `/api/media/:id/content` 返回；`S3_PRESIGN_ENDPOINT` 只用于浏览器直传。因此换成 NAS S3 或 R2 不需要改帖子 URL，但应确保应用服务器到目标 S3 的网络带宽和延迟足够。
 
 切换到 R2 或 NAS S3 时，也应在对应存储服务中为 `staging/` 前缀配置生命周期过期规则。`S3_STAGING_EXPIRY_DAYS` 只由 Compose 内置的 MinIO 初始化服务自动应用，不会替你修改外部 Bucket。
 
