@@ -44,7 +44,7 @@ import { getGlobalAudio } from "@/lib/global-audio";
 import { useMusicPlayer } from "@/lib/music-player-store";
 import { Post, type PostLocation, type PostImage, type PostVideo, type PostDouban } from "@/lib/mock-data";
 import { isLivePhoto, getImageSrc } from "@/lib/post-image";
-import { uploadAudio, uploadDirect, uploadImage, uploadVideo, toAbsoluteUrl, toHttps } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, isImageUploadFile, uploadAudio, uploadDirect, uploadImage, uploadVideo, toAbsoluteUrl, toHttps } from "@/lib/upload";
 import { PUBLIC_API_URL } from "@/lib/api-fetch";
 import { authErrorMessage, getSessionUser, logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
 import { collectManagedMediaIds, dateTimeLocalToIso, hasExternalMediaReferences, toDateTimeLocal } from "@/lib/post-media";
@@ -1161,7 +1161,7 @@ export function PublishModal({
       const fileArr = Array.from(files);
 
       // 实况图模式 + 单个图片文件 → 尝试动态照片提取
-      if (uploadMode === "live" && fileArr.length === 1 && fileArr[0].type.startsWith("image/")) {
+      if (uploadMode === "live" && fileArr.length === 1 && isImageUploadFile(fileArr[0])) {
         const result = await uploadMotionPhoto(fileArr[0]);
         if (result) {
           if (result.isLivePhoto && result.video) {
@@ -1182,7 +1182,7 @@ export function PublishModal({
         const baseName = file.name.replace(/\.[^.]+$/, "");
         if (!groups.has(baseName)) groups.set(baseName, {});
         const g = groups.get(baseName)!;
-        if (file.type.startsWith("image/")) g.image = file;
+        if (isImageUploadFile(file)) g.image = file;
         else if (file.type.startsWith("video/")) g.video = file;
       }
 
@@ -1190,7 +1190,7 @@ export function PublishModal({
       const pairedGroups = Array.from(groups.values());
       const hasAnyPair = pairedGroups.some((g) => g.image && g.video);
       if (!hasAnyPair && uploadMode === "live") {
-        const imageFiles = fileArr.filter((f) => f.type.startsWith("image/"));
+        const imageFiles = fileArr.filter(isImageUploadFile);
         const videoFiles = fileArr.filter((f) => f.type.startsWith("video/"));
         if (imageFiles.length > 0 && videoFiles.length > 0) {
           // 按顺序配对
@@ -1627,7 +1627,7 @@ export function PublishModal({
             </p>
             <p>
               <strong className="text-wechat-text">配对上传（iOS/手动）：</strong>
-              同时选择图片(JPEG)和视频(MP4/MOV)，按文件名自动配对。iOS 需先导出为独立文件。
+              同时选择图片(JPEG/HEIC)和视频(MP4/MOV)，按文件名自动配对。iOS 需先导出为独立文件。
             </p>
           </div>
         )}
@@ -1674,8 +1674,8 @@ export function PublishModal({
                 type="file"
                 accept={
                   uploadMode === "live"
-                    ? "image/jpeg,image/jpg,image/png,image/webp,video/mp4,video/quicktime,video/3gpp,video/3gp"
-                    : "image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                    ? `${IMAGE_FILE_ACCEPT},video/mp4,video/quicktime,video/3gpp,video/3gp`
+                    : IMAGE_FILE_ACCEPT
                 }
                 multiple
                 className="hidden"
@@ -2278,7 +2278,7 @@ export function PublishModal({
                       <label className="block">
                         <input
                           type="file"
-                          accept="image/*"
+                          accept={IMAGE_FILE_ACCEPT}
                           className="hidden"
                           onChange={(e) => {
                             handleUploadCover(e.target.files);

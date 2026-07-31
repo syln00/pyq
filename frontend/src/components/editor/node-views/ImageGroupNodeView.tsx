@@ -16,7 +16,7 @@ import {
   Plus,
   FolderOpen,
 } from "lucide-react";
-import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { useEditorContext } from "../editor-context";
 import MediaPicker, { type PickerMediaItem } from "@/components/MediaPicker";
 import {
@@ -323,7 +323,7 @@ export default function ImageGroupNodeView({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
+        accept={IMAGE_FILE_ACCEPT}
         multiple
         onChange={onFileChange}
         className="hidden"

@@ -36,7 +36,7 @@ import LinkCardPanel from "./admin/LinkCardPanel";
 import MusicPanel from "./admin/MusicPanel";
 import VideoPanel from "./admin/VideoPanel";
 import DoubanPicker from "./DoubanPicker";
-import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { markdownToHtml } from "@/lib/markdown";
 import { normalizeInlineEmoji } from "@/lib/emoji";
 import { useExitAnimation } from "@/lib/use-exit-animation";
@@ -549,7 +549,7 @@ export default function ArticleEditor({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
+          accept={IMAGE_FILE_ACCEPT}
           onChange={onFileChange}
           className="hidden"
         />

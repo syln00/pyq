@@ -19,7 +19,7 @@ import {
   FileText,
 } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api-fetch";
-import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { cravatarUrl } from "@/lib/avatar";
 import { renderContent } from "@/lib/sanitize";
 import RichTextEditor from "@/components/RichTextEditor";
@@ -360,7 +360,7 @@ export default function AdminAds() {
               <input
                 ref={avatarInputRef}
                 type="file"
-                accept="image/*"
+                accept={IMAGE_FILE_ACCEPT}
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -456,7 +456,7 @@ export default function AdminAds() {
             <input
               ref={imagesInputRef}
               type="file"
-              accept="image/*"
+              accept={IMAGE_FILE_ACCEPT}
               multiple
               className="hidden"
               onChange={(e) => {

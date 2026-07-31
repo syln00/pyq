@@ -23,7 +23,7 @@ import {
   Megaphone,
   Rss,
 } from "lucide-react";
-import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { apiFetch, getToken } from "@/lib/api-fetch";
 import { SOCIAL_PLATFORMS, SocialIcon } from "@/components/SocialIcons";
 import MediaPicker from "@/components/MediaPicker";
@@ -295,7 +295,7 @@ function ImageField({
           <input
             ref={inputRef}
             type="file"
-            accept="image/*"
+            accept={IMAGE_FILE_ACCEPT}
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleFile(file);

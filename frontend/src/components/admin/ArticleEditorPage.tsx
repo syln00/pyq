@@ -9,7 +9,7 @@ import PostAccessFields, { type PostVisibility } from "@/components/PostAccessFi
 import { apiFetch, getToken } from "@/lib/api-fetch";
 import { getSessionUser } from "@/lib/auth";
 import { annotateManagedMediaHtml, collectManagedMediaIds, dateTimeLocalToIso, hasExternalMediaReferences, toDateTimeLocal } from "@/lib/post-media";
-import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { wgs84ToGcj02 } from "@/lib/coord-transform";
 import type { PostMusic, PostVideo, LinkCard } from "@/lib/mock-data";
 
@@ -511,7 +511,7 @@ export default function ArticleEditorPage({ articleId }: ArticleEditorPageProps)
               <input
                 ref={coverInputRef}
                 type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp"
+                accept={IMAGE_FILE_ACCEPT}
                 onChange={onCoverChange}
                 className="hidden"
               />

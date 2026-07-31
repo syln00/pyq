@@ -20,7 +20,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { isManagedMediaUrl, uploadImage, toAbsoluteUrl } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, isManagedMediaUrl, uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { resolveAvatar } from "@/lib/avatar";
 import { apiFetch, getToken } from "@/lib/api-fetch";
 import MediaPicker from "@/components/MediaPicker";
@@ -128,7 +128,7 @@ function ImageField({
           <input
             ref={inputRef}
             type="file"
-            accept="image/*"
+            accept={IMAGE_FILE_ACCEPT}
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleFile(file);
@@ -271,7 +271,7 @@ function BackgroundImagesEditor({
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept={IMAGE_FILE_ACCEPT}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) handleFile(file);

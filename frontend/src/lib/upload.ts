@@ -5,9 +5,10 @@ const BASE_URL = API_URL.replace(/\/api$/, "");
 
 export type DirectUploadKind = "image" | "video" | "audio" | "lyric" | "file";
 export type MediaKind = DirectUploadKind;
+export const IMAGE_FILE_ACCEPT = "image/*,.heic,.heif,image/heic,image/heif";
 export const AUDIO_FILE_ACCEPT = ".mp3,.wav,.ogg,.opus,.aac,.m4a,.flac,audio/mpeg,audio/wav,audio/ogg,audio/opus,audio/aac,audio/mp4,audio/flac";
 export const LYRIC_FILE_ACCEPT = ".lrc,text/plain";
-export type DirectUploadPhase = "presign" | "put" | "confirm" | "network";
+export type DirectUploadPhase = "convert" | "presign" | "put" | "confirm" | "network";
 
 export interface DirectUploadOptions {
   signal?: AbortSignal;
@@ -29,6 +30,64 @@ export interface UploadedMedia {
 }
 
 const CLIENT_HASH_MAX_BYTES = 25 * 1024 * 1024;
+const HEIC_MIME_TYPES = new Set([
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
+]);
+
+export function isImageUploadFile(file: Pick<File, "name" | "type">): boolean {
+  return file.type.startsWith("image/") || /\.(?:jpe?g|png|gif|webp|heic|heif)$/i.test(file.name);
+}
+
+async function isHeicFile(file: File): Promise<boolean> {
+  const declaredAsHeic = HEIC_MIME_TYPES.has(file.type.toLowerCase()) || /\.(?:heic|heif)$/i.test(file.name);
+  if (!declaredAsHeic) return false;
+
+  try {
+    const header = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+    if (header.length < 12 || String.fromCharCode(...header.slice(4, 8)) !== "ftyp") return false;
+    const heifBrands = new Set(["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs", "mif1", "msf1"]);
+    for (let offset = 8; offset + 4 <= header.length; offset += 4) {
+      if (heifBrands.has(String.fromCharCode(...header.slice(offset, offset + 4)))) return true;
+    }
+    return false;
+  } catch {
+    return HEIC_MIME_TYPES.has(file.type.toLowerCase());
+  }
+}
+
+async function normalizeImageForUpload(file: File, signal?: AbortSignal): Promise<File> {
+  const hasHeicExtension = /\.(?:heic|heif)$/i.test(file.name);
+  if (!(await isHeicFile(file))) {
+    // Some Apple/browser combinations already provide JPEG bytes and MIME but
+    // retain the original .HEIC filename. Rename it so backend extension/MIME
+    // validation accepts the already-compatible file without decoding again.
+    if (hasHeicExtension && (file.type === "image/jpeg" || file.type === "image/jpg")) {
+      const baseName = file.name.replace(/\.(?:heic|heif)$/i, "") || "image";
+      return new File([file], `${baseName}.jpg`, { type: "image/jpeg", lastModified: file.lastModified });
+    }
+    return file;
+  }
+  if (signal?.aborted) throw new DOMException("Upload aborted", "AbortError");
+
+  try {
+    const { default: heic2any } = await import("heic2any");
+    const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+    if (signal?.aborted) throw new DOMException("Upload aborted", "AbortError");
+    const jpeg = Array.isArray(converted) ? converted[0] : converted;
+    if (!jpeg || jpeg.size <= 0) throw new Error("转换结果为空");
+    const baseName = file.name.replace(/\.(?:heic|heif)$/i, "") || "image";
+    return new File([jpeg], `${baseName}.jpg`, {
+      type: "image/jpeg",
+      lastModified: file.lastModified,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new DirectUploadError("convert", "HEIC/HEIF 图片转换失败，请尝试在相册中导出为 JPEG 后重试。");
+  }
+}
 
 async function fileSha256(file: File, signal?: AbortSignal): Promise<string | null> {
   if (file.size > CLIENT_HASH_MAX_BYTES || !globalThis.crypto?.subtle) return null;
@@ -120,13 +179,14 @@ export async function uploadDirect(
   kind: DirectUploadKind,
   options: DirectUploadOptions = {}
 ): Promise<UploadedMedia> {
-  const mimeType = normalizedMimeType(file);
+  const uploadFile = kind === "image" ? await normalizeImageForUpload(file, options.signal) : file;
+  const mimeType = normalizedMimeType(uploadFile);
   const apiUrl = getApiUrl();
   const shouldDeduplicate = options.deduplicate !== false;
   let contentHash: string | null = null;
   if (shouldDeduplicate) {
     try {
-      contentHash = await fileSha256(file, options.signal);
+      contentHash = await fileSha256(uploadFile, options.signal);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") throw error;
       // Server-side streaming verification still deduplicates when browser hashing is unavailable.
@@ -141,10 +201,10 @@ export async function uploadDirect(
       },
       credentials: "include",
       body: JSON.stringify({
-        filename: file.name,
+        filename: uploadFile.name,
         mimeType,
         kind,
-        size: file.size,
+        size: uploadFile.size,
         contentHash,
         deduplicate: shouldDeduplicate,
       }),
@@ -163,7 +223,7 @@ export async function uploadDirect(
     return existingMedia as UploadedMedia;
   }
   if (!intentId || !uploadUrl) throw new DirectUploadError("presign", "上传服务返回了无效的上传地址。");
-  if (Number(maxSize) > 0 && file.size > Number(maxSize)) {
+  if (Number(maxSize) > 0 && uploadFile.size > Number(maxSize)) {
     throw new DirectUploadError("presign", `文件大小超过 ${(Number(maxSize) / 1024 / 1024).toFixed(0)}MB 限制。`);
   }
 
@@ -173,7 +233,7 @@ export async function uploadDirect(
     put = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": mimeType },
-      body: file,
+      body: uploadFile,
       signal: options.signal,
     });
   } catch {

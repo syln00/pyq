@@ -5,7 +5,7 @@ import { ImageIcon, Library, Loader2, Upload, X } from "lucide-react";
 import LyricEditor from "@/components/LyricEditor";
 import MediaPicker, { type PickerMediaItem } from "@/components/MediaPicker";
 import { apiFetch, getToken } from "@/lib/api-fetch";
-import { AUDIO_FILE_ACCEPT, LYRIC_FILE_ACCEPT, uploadDirect, type UploadedMedia } from "@/lib/upload";
+import { AUDIO_FILE_ACCEPT, IMAGE_FILE_ACCEPT, LYRIC_FILE_ACCEPT, uploadDirect, type UploadedMedia } from "@/lib/upload";
 import { parseAudioMetadata } from "@/lib/music-metadata";
 
 export interface MusicTrackDraft {
@@ -186,7 +186,7 @@ export default function MusicTrackForm({ track, onSaved, onCancel }: MusicTrackF
     {draft.audio && <p className="truncate text-xs text-adm-text-tertiary">当前音频：{draft.audio.filename}</p>}
     <div className="grid gap-3 sm:grid-cols-2"><input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="歌曲名称" className="rounded-lg border border-adm-border bg-adm-input px-3 py-2 text-sm text-adm-text" /><input value={draft.artist} onChange={(event) => setDraft((current) => ({ ...current, artist: event.target.value }))} placeholder="歌手（可选）" className="rounded-lg border border-adm-border bg-adm-input px-3 py-2 text-sm text-adm-text" /></div>
     <div className="flex flex-wrap gap-2">
-      <label className="cursor-pointer rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary"><ImageIcon className="mr-1.5 inline h-4 w-4" />上传封面<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void handleCoverFile(file); event.currentTarget.value = ""; }} /></label>
+      <label className="cursor-pointer rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary"><ImageIcon className="mr-1.5 inline h-4 w-4" />上传封面<input type="file" accept={IMAGE_FILE_ACCEPT} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void handleCoverFile(file); event.currentTarget.value = ""; }} /></label>
       <button type="button" onClick={() => setPicker("cover")} className="rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary">从媒体库选择封面</button>
       {(draft.cover || embeddedCover) && <button type="button" onClick={() => { setDraft((current) => ({ ...current, cover: null })); setEmbeddedCover(null); }} className="rounded-lg border border-adm-border px-3 py-2 text-sm text-adm-text-secondary"><X className="mr-1 inline h-3.5 w-3.5" />清除封面</button>}
     </div>

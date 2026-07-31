@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { cravatarUrl } from "@/lib/avatar";
 import { apiFetch, getToken } from "@/lib/api-fetch";
-import { uploadImage, toAbsoluteUrl } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, uploadImage, toAbsoluteUrl } from "@/lib/upload";
 import { useExitAnimation } from "@/lib/use-exit-animation";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 
@@ -304,7 +304,7 @@ export default function AdminFriends() {
                 <input
                   ref={avatarInputRef}
                   type="file"
-                  accept="image/*"
+                  accept={IMAGE_FILE_ACCEPT}
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
