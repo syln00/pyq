@@ -5,6 +5,8 @@
  */
 import { Router, Request, Response } from "express";
 import path from "path";
+import { Readable } from "stream";
+import { pipeline } from "stream/promises";
 import { Op, UniqueConstraintError } from "sequelize";
 import { param, validationResult } from "express-validator";
 import { v4 as uuidv4 } from "uuid";
@@ -15,13 +17,13 @@ import {
   buildObjectKey,
   buildStagingKey,
   createPresignedUploadForKey,
-  createPresignedDownload,
   deleteObject,
   downloadObject,
   extractObjectKey,
   hashObject,
   promoteObject,
   statObject,
+  streamObject,
 } from "../services/s3-service";
 import { canViewPost } from "../services/post-access-service";
 import { ensureMediaPreview, generateImagePreviewSafely } from "../services/media-preview-service";
@@ -342,20 +344,71 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
   }
 });
 
-async function mayReadMedia(media: Media, req: AuthRequest) {
-  if (req.user?.role === "admin" || req.user?.id === media.uploaderId) return true;
-  if (media.accessClass === "public_asset") return true;
-  if (media.accessClass !== "post_bound") return false;
-  const links = await PostMedia.findAll({ where: { mediaId: media.id }, attributes: ["postId"] });
-  if (!links.length) return false;
-  const posts = await Post.findAll({ where: { id: { [Op.in]: links.map((link) => link.postId) } } });
-  for (const post of posts) {
-    if (await canViewPost(post, req.user)) return true;
-  }
-  return false;
+type MediaCacheClass = "public" | "authenticated" | "selected" | "owner_only";
+
+function cacheClassForPosts(posts: Post[]): MediaCacheClass {
+  if (!posts.length) return "owner_only";
+  const now = Date.now();
+  if (posts.some((post) => post.status !== "published" || post.publishedAt.getTime() > now)) return "owner_only";
+  if (posts.some((post) => post.visibility === "selected")) return "selected";
+  if (posts.some((post) => post.visibility === "authenticated")) return "authenticated";
+  return "public";
 }
 
-// GET /api/media/:id/content — 鉴权后跳转到短时签名 URL；Range 请求由 S3 处理。
+async function resolveMediaAccess(media: Media, req: AuthRequest) {
+  if (media.accessClass === "public_asset") {
+    return { allowed: true, cacheClass: "public" as MediaCacheClass };
+  }
+  if (media.accessClass !== "post_bound") {
+    const allowed = req.user?.role === "admin" || req.user?.id === media.uploaderId;
+    return { allowed, cacheClass: "owner_only" as MediaCacheClass };
+  }
+  const links = await PostMedia.findAll({ where: { mediaId: media.id }, attributes: ["postId"] });
+  if (!links.length) return { allowed: false, cacheClass: "owner_only" as MediaCacheClass };
+  const posts = await Post.findAll({ where: { id: { [Op.in]: links.map((link) => link.postId) } } });
+  const cacheClass = cacheClassForPosts(posts);
+  if (req.user?.role === "admin" || req.user?.id === media.uploaderId) {
+    return { allowed: true, cacheClass };
+  }
+  for (const post of posts) {
+    if (await canViewPost(post, req.user)) return { allowed: true, cacheClass };
+  }
+  return { allowed: false, cacheClass };
+}
+
+function setMediaCacheHeaders(res: Response, cacheClass: MediaCacheClass) {
+  if (cacheClass === "public") {
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    return;
+  }
+  if (cacheClass === "authenticated") {
+    res.setHeader("Cache-Control", "private, max-age=86400");
+  } else if (cacheClass === "selected") {
+    res.setHeader("Cache-Control", "private, max-age=600");
+  } else {
+    res.setHeader("Cache-Control", "private, no-store");
+  }
+  res.setHeader("Vary", "Cookie, Authorization");
+}
+
+function requestDate(value: string | undefined) {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp) : undefined;
+}
+
+async function rangeAllowedByIfRange(objectKey: string, range: string | undefined, ifRange: string | undefined) {
+  if (!range || !ifRange) return range;
+  const stat = await statObject(objectKey);
+  if (!stat) return undefined;
+  if (ifRange.startsWith("\"") || ifRange.startsWith("W/\"")) {
+    return !ifRange.startsWith("W/") && stat.etag === ifRange ? range : undefined;
+  }
+  const date = requestDate(ifRange);
+  return date && stat.lastModified && stat.lastModified.getTime() <= date.getTime() ? range : undefined;
+}
+
+// GET /api/media/:id/content — ACL-protected, same-origin S3 streaming with Range support.
 router.get(
   "/:id/content",
   authenticateOptional,
@@ -366,22 +419,84 @@ router.get(
       return;
     }
     const media = await Media.findByPk(String(req.params.id));
-    if (!media || !(await mayReadMedia(media, req))) {
+    if (!media) {
       res.status(404).json({ message: "媒体不存在" });
       return;
     }
-    const objectKey = media.objectKey || extractObjectKey(media.url);
+    const access = await resolveMediaAccess(media, req);
+    if (!access.allowed) {
+      res.status(404).json({ message: "媒体不存在" });
+      return;
+    }
+
+    const variant = typeof req.query.variant === "string" ? req.query.variant : "original";
+    if (variant !== "original" && variant !== "preview") {
+      res.status(404).json({ message: "媒体不存在" });
+      return;
+    }
+    const usePreview = variant === "preview" && Boolean(media.previewObjectKey);
+    const objectKey = usePreview ? media.previewObjectKey : media.objectKey || extractObjectKey(media.url);
     if (!objectKey) {
       res.status(404).json({ message: "媒体对象不存在" });
       return;
     }
-    try {
-      const signedUrl = await createPresignedDownload(objectKey, media.mimeType);
-      res.setHeader("Cache-Control", "private, no-store");
+
+    const requestedRange = typeof req.headers.range === "string" ? req.headers.range : undefined;
+    if (requestedRange && (!/^bytes=\d*-\d*$/.test(requestedRange) || requestedRange === "bytes=-")) {
       res.setHeader("Accept-Ranges", "bytes");
-      res.redirect(302, signedUrl);
-    } catch (error) {
-      console.error("[media] create signed download failed:", error);
+      res.status(416).end();
+      return;
+    }
+
+    setMediaCacheHeaders(res, access.cacheClass);
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    try {
+      const range = await rangeAllowedByIfRange(
+        objectKey,
+        requestedRange,
+        typeof req.headers["if-range"] === "string" ? req.headers["if-range"] : undefined
+      );
+      const ifNoneMatch = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : undefined;
+      const response = await streamObject(objectKey, {
+        range,
+        ifNoneMatch,
+        ifModifiedSince: ifNoneMatch
+          ? undefined
+          : requestDate(typeof req.headers["if-modified-since"] === "string" ? req.headers["if-modified-since"] : undefined),
+      });
+      if (!response.Body) throw new Error("S3 对象为空");
+
+      res.status(response.ContentRange ? 206 : 200);
+      res.setHeader("Content-Type", response.ContentType || (usePreview ? "image/webp" : media.mimeType));
+      if (response.ContentLength != null) res.setHeader("Content-Length", String(response.ContentLength));
+      if (response.ContentRange) res.setHeader("Content-Range", response.ContentRange);
+      if (response.ETag) res.setHeader("ETag", response.ETag);
+      if (response.LastModified) res.setHeader("Last-Modified", response.LastModified.toUTCString());
+
+      await pipeline(response.Body as Readable, res);
+    } catch (error: any) {
+      if (res.headersSent) {
+        if (!res.destroyed) res.destroy(error);
+        return;
+      }
+      const statusCode = Number(error?.$metadata?.httpStatusCode || 0);
+      if (statusCode === 304) {
+        res.status(304).end();
+        return;
+      }
+      if (statusCode === 416 || error?.name === "InvalidRange") {
+        const stat = await statObject(objectKey);
+        if (stat) res.setHeader("Content-Range", `bytes */${stat.size}`);
+        res.status(416).end();
+        return;
+      }
+      if (statusCode === 404 || error?.name === "NoSuchKey") {
+        res.status(404).json({ message: "媒体对象不存在" });
+        return;
+      }
+      console.error("[media] stream download failed:", error);
       res.status(502).json({ message: "媒体暂时无法读取" });
     }
   }

@@ -5,6 +5,7 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  type GetObjectCommandInput,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createHash } from "crypto";
@@ -127,6 +128,25 @@ export async function downloadObject(objectKey: string, maxBytes?: number): Prom
   return Buffer.concat(chunks);
 }
 
+export interface StreamObjectOptions {
+  range?: string;
+  ifNoneMatch?: string;
+  ifModifiedSince?: Date;
+}
+
+/** Return the native S3 body so callers can pipe it without buffering. */
+export async function streamObject(objectKey: string, options: StreamObjectOptions = {}) {
+  const { client, cfg } = getClients();
+  const input: GetObjectCommandInput = {
+    Bucket: cfg.bucket,
+    Key: objectKey,
+    Range: options.range,
+    IfNoneMatch: options.ifNoneMatch,
+    IfModifiedSince: options.ifModifiedSince,
+  };
+  return client.send(new GetObjectCommand(input));
+}
+
 /** Stream an object through SHA-256 without buffering the whole file in memory. */
 export async function hashObject(
   objectKey: string,
@@ -156,11 +176,21 @@ export async function deleteObject(objectKey: string): Promise<boolean> {
   }
 }
 
-export async function statObject(objectKey: string): Promise<{ size: number; contentType?: string } | null> {
+export async function statObject(objectKey: string): Promise<{
+  size: number;
+  contentType?: string;
+  etag?: string;
+  lastModified?: Date;
+} | null> {
   try {
     const { client, cfg } = getClients();
     const response = await client.send(new HeadObjectCommand({ Bucket: cfg.bucket, Key: objectKey }));
-    return { size: Number(response.ContentLength || 0), contentType: response.ContentType };
+    return {
+      size: Number(response.ContentLength || 0),
+      contentType: response.ContentType,
+      etag: response.ETag,
+      lastModified: response.LastModified,
+    };
   } catch {
     return null;
   }
