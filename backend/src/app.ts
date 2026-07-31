@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth";
 import postsRoutes from "./routes/posts";
 import usersRoutes from "./routes/users";
 import adminRoutes from "./routes/admin";
+import postImportRoutes from "./routes/post-imports";
 import uploadRoutes from "./routes/upload";
 import friendsRoutes from "./routes/friends";
 import settingsRoutes from "./routes/settings";
@@ -45,6 +46,7 @@ app.use(
     credentials: true,
   })
 );
+app.use("/api/admin/post-imports", express.json({ limit: "2mb" }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -93,6 +95,7 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/posts", postsRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/admin/post-imports", postImportRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/friends", friendsRoutes);

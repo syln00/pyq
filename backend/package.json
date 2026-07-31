@@ -17,6 +17,7 @@
     "db:migrate-catalog-item-fields": "ts-node src/scripts/migrate-catalog-item-fields.ts",
     "db:migrate-r2-music-fields": "ts-node src/scripts/migrate-r2-music-fields.ts",
     "db:migrate-privacy-access": "ts-node src/scripts/migrate-privacy-access.ts",
+    "db:migrate-post-imports": "ts-node src/scripts/migrate-post-imports.ts",
     "storage:check": "ts-node src/scripts/check-media-integrity.ts",
     "storage:backfill-hashes": "ts-node src/scripts/backfill-media-hashes.ts",
     "storage:backfill-previews": "ts-node src/scripts/backfill-media-previews.ts",

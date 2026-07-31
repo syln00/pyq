@@ -95,9 +95,11 @@ interface PostAttributes {
   visibility: "public" | "authenticated" | "selected";
   /** 用户选择的展示发布时间；createdAt 继续作为真实录入审计时间 */
   publishedAt: Date;
+  /** Excel 批量导入的幂等键；普通发布保持 null */
+  importKey: string | null;
 }
 
-interface PostCreationAttributes extends Optional<PostAttributes, "id" | "shortId" | "type" | "title" | "excerpt" | "cover" | "category" | "pinned" | "isAd" | "adAvatar" | "adNickname" | "likesDisabled" | "commentsDisabled" | "ip" | "region" | "articleType" | "repostUrl" | "viewCount" | "status" | "visibility" | "publishedAt"> {}
+interface PostCreationAttributes extends Optional<PostAttributes, "id" | "shortId" | "type" | "title" | "excerpt" | "cover" | "category" | "pinned" | "isAd" | "adAvatar" | "adNickname" | "likesDisabled" | "commentsDisabled" | "ip" | "region" | "articleType" | "repostUrl" | "viewCount" | "status" | "visibility" | "publishedAt" | "importKey"> {}
 
 class Post
   extends Model<PostAttributes, PostCreationAttributes>
@@ -132,6 +134,7 @@ class Post
   declare status: "published" | "draft";
   declare visibility: "public" | "authenticated" | "selected";
   declare publishedAt: Date;
+  declare importKey: string | null;
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
   // Association
@@ -286,6 +289,11 @@ Post.init(
       type: DataTypes.DATE,
       allowNull: false,
       defaultValue: DataTypes.NOW,
+    },
+    importKey: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      defaultValue: null,
     },
   },
   {

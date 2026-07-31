@@ -9,6 +9,7 @@ import { migrateDecorationImage } from "./migrate-decoration-image";
 import { migrateCatalogItemFields } from "./migrate-catalog-item-fields";
 import { migrateR2MusicFields } from "./migrate-r2-music-fields";
 import { migratePrivacyAccess } from "./migrate-privacy-access";
+import { migratePostImports } from "./migrate-post-imports";
 
 const DEFAULT_PLAYLIST_SLUG = "site-default";
 
@@ -115,6 +116,7 @@ export async function initializeDatabase() {
   await migrateCatalogItemFields();
   await migrateR2MusicFields();
   await migratePrivacyAccess();
+  await migratePostImports();
 
   await ensureSiteSettings();
   await ensureDefaultPlaylist();

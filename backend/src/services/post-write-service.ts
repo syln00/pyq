@@ -30,7 +30,7 @@ export interface CreatePostInput {
   repostUrl?: string;
   content?: string;
   images?: unknown[];
-  location?: Record<string, unknown> | null;
+  location?: Post["location"];
   region?: string;
   music?: unknown;
   linkCard?: Record<string, unknown> | null;
@@ -52,6 +52,7 @@ export interface CreatePostOptions {
   actor: TokenPayload;
   input: CreatePostInput;
   clientIp: string;
+  importKey?: string | null;
 }
 
 export function parsePublishedAt(value: unknown): Date {
@@ -124,7 +125,7 @@ export async function validateS3MusicPayload(value: unknown, userId: string) {
   };
 }
 
-export async function createPostWithAccess({ actor, input, clientIp }: CreatePostOptions) {
+export async function createPostWithAccess({ actor, input, clientIp, importKey = null }: CreatePostOptions) {
   const {
     type = "moment",
     title = "",
@@ -214,6 +215,7 @@ export async function createPostWithAccess({ actor, input, clientIp }: CreatePos
           status,
           visibility: finalIsAd ? "public" : visibility,
           publishedAt,
+          importKey,
           ip: clientIp,
           region,
         }, { transaction });
