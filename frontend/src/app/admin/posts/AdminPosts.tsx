@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Pin, PinOff, Heart, MessageSquare } from "lucide-react";
+import Link from "next/link";
+import { Trash2, Pin, PinOff, Heart, MessageSquare, FileSpreadsheet } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api-fetch";
 import { Post, formatArticleTime, postPublishedAt } from "@/lib/mock-data";
 import { getSessionUser } from "@/lib/auth";
@@ -124,11 +125,18 @@ export default function AdminPosts() {
 
   return (
     <div className="space-y-3">
-      <div>
-        <h2 className="text-lg font-bold text-adm-text">{isAdmin ? "动态管理" : "我的动态"}</h2>
-        <p className="mt-1 text-sm text-adm-text-secondary">
-          {isAdmin ? `共 ${posts.length} 条动态` : `我的动态共 ${posts.length} 条`}（发布请使用顶栏「发表动态」按钮）
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-adm-text">{isAdmin ? "动态管理" : "我的动态"}</h2>
+          <p className="mt-1 text-sm text-adm-text-secondary">
+            {isAdmin ? `共 ${posts.length} 条动态` : `我的动态共 ${posts.length} 条`}（发布请使用顶栏「发表动态」按钮）
+          </p>
+        </div>
+        {isAdmin && (
+          <Link href="/admin/posts/import" className="inline-flex items-center gap-2 rounded-lg border border-adm-border bg-adm-card px-3 py-2 text-sm font-medium text-adm-text hover:bg-adm-card-hover">
+            <FileSpreadsheet className="h-4 w-4" />Excel 批量导入
+          </Link>
+        )}
       </div>
 
       {posts.length === 0 ? (
