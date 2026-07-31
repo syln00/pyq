@@ -44,7 +44,7 @@ import { getGlobalAudio } from "@/lib/global-audio";
 import { useMusicPlayer } from "@/lib/music-player-store";
 import { Post, type PostLocation, type PostImage, type PostVideo, type PostDouban } from "@/lib/mock-data";
 import { isLivePhoto, getImageSrc } from "@/lib/post-image";
-import { IMAGE_FILE_ACCEPT, isImageUploadFile, uploadAudio, uploadDirect, uploadImage, uploadVideo, toAbsoluteUrl, toHttps } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, isImageUploadFile, managedMediaPreviewUrl, uploadAudio, uploadDirect, uploadImage, uploadVideo, toAbsoluteUrl, toHttps } from "@/lib/upload";
 import { PUBLIC_API_URL } from "@/lib/api-fetch";
 import { authErrorMessage, getSessionUser, logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
 import { collectManagedMediaIds, dateTimeLocalToIso, hasExternalMediaReferences, toDateTimeLocal } from "@/lib/post-media";
@@ -1741,6 +1741,7 @@ export function PublishModal({
                   <div className="grid grid-rows-3 grid-flow-col gap-0.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                     {mediaItems.map((item) => {
                       const fullUrl = toAbsoluteUrl(item.url);
+                      const previewUrl = toAbsoluteUrl(managedMediaPreviewUrl(item.url));
                       const isSelected = images.some((img) => {
                         const imgSrc = typeof img === "string" ? img : img.src;
                         return imgSrc === item.url || imgSrc === fullUrl || toAbsoluteUrl(imgSrc) === fullUrl;
@@ -1763,7 +1764,7 @@ export function PublishModal({
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={fullUrl}
+                            src={previewUrl}
                             alt=""
                             className="h-full w-full object-cover"
                             loading="lazy"

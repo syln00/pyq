@@ -5,7 +5,7 @@ import { useState, useCallback, useEffect, useRef, type MouseEvent as ReactMouse
 import ImageViewer from "./ImageViewer";
 import type { PostImage } from "@/lib/mock-data";
 import { isLivePhoto, getImageSrc, getVideoSrc } from "@/lib/post-image";
-import { isManagedMediaUrl } from "@/lib/upload";
+import { isManagedMediaUrl, managedMediaPreviewUrl } from "@/lib/upload";
 import { Volume2, VolumeX } from "lucide-react";
 
 interface ImageGridProps {
@@ -17,22 +17,31 @@ function FadeImage({
   alt,
   sizes,
   className = "",
+  onDimensions,
 }: {
   src: string;
   alt: string;
   sizes: string;
   className?: string;
+  onDimensions?: (width: number, height: number) => void;
 }) {
   const [loaded, setLoaded] = useState(false);
+  const displaySrc = managedMediaPreviewUrl(src);
   return (
     <Image
-      src={src}
+      src={displaySrc}
       alt={alt}
       fill
       sizes={sizes}
-      onLoad={() => setLoaded(true)}
+      onLoad={(event) => {
+        setLoaded(true);
+        const image = event.currentTarget;
+        if (image.naturalWidth && image.naturalHeight) {
+          onDimensions?.(image.naturalWidth, image.naturalHeight);
+        }
+      }}
       className={`${className} transition-opacity duration-500 ${loaded ? "opacity-100" : "opacity-0"}`}
-      unoptimized={isManagedMediaUrl(src)}
+      unoptimized={isManagedMediaUrl(displaySrc)}
     />
   );
 }
@@ -81,7 +90,7 @@ const stopProp = (e: ReactMouseEvent | ReactTouchEvent) => e.stopPropagation();
 export default function ImageGrid({ images }: ImageGridProps) {
   const [index, setIndex] = useState(-1);
   const [originRect, setOriginRect] = useState<DOMRect | null>(null);
-  const [singleRatio, setSingleRatio] = useState<number | null>(null);
+  const [singleRatio, setSingleRatio] = useState<{ src: string; value: number } | null>(null);
 
   // 实况图播放状态
   const [playingIndex, setPlayingIndex] = useState(-1);
@@ -237,28 +246,6 @@ export default function ImageGrid({ images }: ImageGridProps) {
     [isDesktop, playingIndex, stopVideo, openViewer]
   );
 
-  // Preload single image for aspect ratio
-  useEffect(() => {
-    if (count !== 1 || !images[0]) {
-      setSingleRatio(null);
-      return;
-    }
-    let cancelled = false;
-    const probe = new window.Image();
-    probe.onload = () => {
-      if (!cancelled && probe.naturalWidth && probe.naturalHeight) {
-        setSingleRatio(probe.naturalWidth / probe.naturalHeight);
-      }
-    };
-    probe.onerror = () => {
-      if (!cancelled) setSingleRatio(4 / 3);
-    };
-    probe.src = getImageSrc(images[0]);
-    return () => {
-      cancelled = true;
-    };
-  }, [count, images]);
-
   // Cleanup
   useEffect(() => {
     return () => {
@@ -275,14 +262,14 @@ export default function ImageGrid({ images }: ImageGridProps) {
 
   // ===== Single image =====
   if (displayCount === 1) {
-    const ratio = singleRatio ?? 4 / 3;
+    const img = display[0];
+    const src = getImageSrc(img);
+    const ratio = singleRatio?.src === src ? singleRatio.value : 4 / 3;
     const isLandscape = ratio >= 1;
     const widthValue = isLandscape
       ? "min(100%, var(--single-img-max, 280px))"
       : `min(100%, calc(var(--single-img-height, 240px) * ${ratio}))`;
 
-    const img = display[0];
-    const src = getImageSrc(img);
     const video = getVideoSrc(img);
     const live = isLivePhoto(img);
     const playing = playingIndex === 0;
@@ -321,6 +308,7 @@ export default function ImageGrid({ images }: ImageGridProps) {
                 alt="朋友圈图片"
                 className="object-cover transition-transform duration-200 hover:scale-105"
                 sizes="(max-width: 640px) 70vw, 320px"
+                onDimensions={(width, height) => setSingleRatio({ src, value: width / height })}
               />
             </button>
 

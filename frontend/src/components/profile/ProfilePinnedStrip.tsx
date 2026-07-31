@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Play, Music2, Link as LinkIcon, ChevronRight, ChevronDown } from "lucide-react";
 import type { Post, PostImage } from "@/lib/mock-data";
 import { getImageSrc, normalizeImages } from "@/lib/post-image";
-import { toAbsoluteUrl, toHttps } from "@/lib/upload";
+import { managedMediaPreviewUrl, toAbsoluteUrl, toHttps } from "@/lib/upload";
 import ImageViewer from "@/components/ImageViewer";
 import VideoPlayerModal from "@/components/VideoPlayerModal";
 
@@ -55,9 +55,10 @@ function buildTile(post: Post): TileInfo {
 // 渐显缩略图：与首页 ImageGrid 中的 FadeImage 相同的渐显效果
 function FadeThumb({ src, alt }: { src: string; alt: string }) {
   const [loaded, setLoaded] = useState(false);
+  const previewSrc = managedMediaPreviewUrl(src);
   return (
     <Image
-      src={src}
+      src={previewSrc}
       alt={alt}
       fill
       onLoad={() => setLoaded(true)}

@@ -132,6 +132,19 @@ export function isManagedMediaUrl(url: string): boolean {
   }
 }
 
+/** Use the generated WebP derivative for thumbnail/list contexts. */
+export function managedMediaPreviewUrl(url: string): string {
+  if (!isManagedMediaUrl(url)) return url;
+  try {
+    const absolute = /^https?:\/\//i.test(url);
+    const parsed = new URL(url, "http://pyq.local");
+    parsed.searchParams.set("variant", "preview");
+    return absolute ? parsed.href : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return url;
+  }
+}
+
 /** Upgrade http:// to https:// to avoid Mixed Content warnings on HTTPS pages */
 export function toHttps(url: string): string {
   if (!url || typeof url !== "string") return url;

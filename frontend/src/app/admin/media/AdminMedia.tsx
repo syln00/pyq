@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api-fetch";
-import { toAbsoluteUrl, uploadDirect } from "@/lib/upload";
+import { managedMediaPreviewUrl, toAbsoluteUrl, uploadDirect } from "@/lib/upload";
 import { useExitAnimation } from "@/lib/use-exit-animation";
 
 interface MediaItem {
@@ -27,6 +27,8 @@ interface MediaItem {
   storageType: "r2";
   mimeType: string;
   size: number;
+  width: number | null;
+  height: number | null;
   category: "image" | "video" | "audio" | "file";
   uploaderId: string;
   uploaderName: string;
@@ -339,7 +341,7 @@ function MediaCard({ item, onClick }: { item: MediaItem; onClick: () => void }) 
   const isVideo = item.category === "video";
   const isAudio = item.category === "audio";
   const isLivePhoto = !!item.livePhotoVideo;
-  const thumbUrl = toAbsoluteUrl(item.url);
+  const thumbUrl = toAbsoluteUrl(managedMediaPreviewUrl(item.url));
 
   return (
     <button

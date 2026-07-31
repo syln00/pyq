@@ -12,7 +12,7 @@ import {
   Check,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
-import { toAbsoluteUrl, type MediaKind } from "@/lib/upload";
+import { managedMediaPreviewUrl, toAbsoluteUrl, type MediaKind } from "@/lib/upload";
 
 export interface PickerMediaItem {
   id: string;
@@ -21,6 +21,8 @@ export interface PickerMediaItem {
   storageType: "r2";
   mimeType: string;
   size: number;
+  width?: number | null;
+  height?: number | null;
   category: "image" | "video" | "audio" | "file";
   kind: MediaKind;
   livePhotoVideo?: string | null;
@@ -139,7 +141,7 @@ export default function MediaPicker({
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
             {items.map((item) => {
-              const fullUrl = toAbsoluteUrl(item.url);
+              const fullUrl = toAbsoluteUrl(managedMediaPreviewUrl(item.url));
               const isSelected = selectedId === item.id;
               return (
                 <button

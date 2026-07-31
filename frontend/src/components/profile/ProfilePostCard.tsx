@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Play, Pause, Music2, Link as LinkIcon, FileText } from "lucide-react";
 import type { Post, PostMusic, PostImage } from "@/lib/mock-data";
 import { getImageSrc } from "@/lib/post-image";
-import { toAbsoluteUrl, toHttps } from "@/lib/upload";
+import { managedMediaPreviewUrl, toAbsoluteUrl, toHttps } from "@/lib/upload";
 import { renderContent } from "@/lib/sanitize";
 import { useMusicPlayer } from "@/lib/music-player-store";
 import { useSiteSettings } from "@/lib/site-settings-store";
@@ -80,9 +80,10 @@ function formatMusicInfo(music: PostMusic): { title: string; subtitle?: string }
 
 function FadeThumb({ src, alt }: { src: string; alt: string }) {
   const [loaded, setLoaded] = useState(false);
+  const previewSrc = managedMediaPreviewUrl(src);
   return (
     <Image
-      src={src}
+      src={previewSrc}
       alt={alt}
       fill
       onLoad={() => setLoaded(true)}
