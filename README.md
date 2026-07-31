@@ -14,6 +14,7 @@
 - 媒体 Bucket 始终私有，数据库只保存 provider-neutral `objectKey`，读取通过稳定的 `/api/media/:id/content` 鉴权地址。
 - 动态列表使用最大宽度 1280px、质量 80 的 WebP 预览图；全屏查看保留原图，音视频读取支持 Range。
 - 媒体下载由主站同源流式转发，公开资源长期缓存、登录可见缓存一天、指定用户缓存十分钟。
+- 管理员可通过 ZIP + Excel 批量导入最多 100 条历史动态，图片自动并发直传 S3、去重并生成预览图。
 - MinIO、Cloudflare R2 和 NAS S3 使用同一套 `S3_*` 配置，迁移时无需批量改写帖子 URL。
 - 同时支持 Docker 自托管和 Vercel + 托管 MySQL + R2。
 
@@ -26,6 +27,31 @@
 | 数据库 | MySQL 8 或兼容数据库 |
 | 媒体 | 私有 S3 API：MinIO、Cloudflare R2、NAS S3 |
 | 自托管入口 | Caddy，同源 `/api`，自动 HTTPS |
+
+## Excel 批量导入动态
+
+管理员登录后进入“动态管理”，点击“Excel 批量导入”，先下载模板 ZIP。导入包结构如下：
+
+```text
+import.zip
+├── moments.xlsx
+└── images/
+    ├── 001.jpg
+    └── 002.heic
+```
+
+Excel 的“图片文件”列填写 `001.jpg|002.heic` 或完整的 `images/001.jpg`。不要把图片直接粘贴或插入 Excel；内嵌图片在不同 Excel/WPS 版本中的行锚点不可靠，也不会减少实际上传的数据量。
+
+- 每批最多 100 条动态、500 个图片文件、每条动态最多 9 张图，ZIP 最大 1GB；
+- 支持 JPG、PNG、GIF、WebP、HEIC/HEIF，HEIC/HEIF 会在浏览器中转为 JPEG；
+- 图片从浏览器直接并发上传到 S3，重复内容复用现有媒体，不会再次保存相同对象；
+- 发布时间支持 Excel 日期、`YYYY-MM-DD HH:mm:ss` 和 ISO，无时区时间按 `Asia/Shanghai` 解释；
+- 可见性支持公开、登录用户可见和指定用户可见，指定用户使用已审核用户的邮箱；
+- 地点名称、城市、详细地址均可单独填写，经纬度选填且必须成对使用 GCJ-02 坐标；
+- 错误行会跳过，其他行继续导入，完成后可下载 `导入结果.xlsx`；
+- 重复导入完全相同的内容会自动跳过。上传成功但动态创建失败的图片会留在管理员私有媒体库，供修正后重试。
+
+ZIP 在浏览器本地解析，不会整体上传给后端，因此 Docker、Vercel + R2 和 NAS S3 均可使用。浏览器仍需能够访问 `S3_PRESIGN_ENDPOINT`，并且 Bucket CORS 必须允许站点来源执行 PUT。
 
 ## Docker 服务器部署
 
@@ -165,7 +191,9 @@ docker compose up -d --build
 docker compose ps
 ```
 
-如果这次更新前已有图片，建议再运行一次预览图回填：
+Excel 批量导入使用的 `posts.import_key` 会由 `db-init` 自动、幂等地创建，不需要额外运行迁移命令。
+
+仅当首次升级到图片预览功能、且升级前已经有图片时，执行一次预览图回填。成功执行后，后续普通更新不需要重复运行：
 
 ```bash
 docker compose run --rm backend node dist/scripts/backfill-media-previews.js

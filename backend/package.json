@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon src/index.ts",
     "build": "tsc",
+    "test": "npm run build && node --test dist/tests/*.test.js",
     "start": "node dist/index.js",
     "db:init": "ts-node src/scripts/init-db.ts",
     "db:reset-likes": "ts-node src/scripts/reset-likes.ts",

@@ -81,6 +81,22 @@ docker compose logs --tail=100 db-init minio-init backend frontend caddy
 
 打开 `SITE_URL`，使用初始管理员登录。注册默认关闭，可在后台站点设置中开启。开启后新账号仍需管理员审核。
 
+### Excel 批量导入历史动态
+
+管理员可以在“动态管理 → Excel 批量导入”下载模板 ZIP。`moments.xlsx` 放在 ZIP 根目录，图片放在 `images/`，Excel 的图片列填写图片文件名或 `images/` 下的相对路径。
+
+导入包由浏览器本地解析，图片沿用正常媒体上传流程直接 PUT 到 `S3_PRESIGN_ENDPOINT`，后端只接收校验后的动态字段和 `mediaIds`。这意味着：
+
+- ZIP 不经过 Caddy 或 Express，请求体大小不会受到后端 JSON 限制；
+- 图片速度仍取决于浏览器到 S3 的网络，但会以最多 3 路并发自动上传；
+- 同一图片在当前管理员媒体库中已经存在时，会根据 SHA-256 直接复用；
+- HEIC/HEIF 会先在浏览器转换为 JPEG；
+- 指定用户可见动态只能填写 active 用户邮箱；
+- 地点文字不依赖高德 API，经纬度为可选 GCJ-02 坐标；
+- 错误行跳过，正确行继续，重复行通过 `importKey` 自动跳过。
+
+每批限制为 100 条动态、500 个图片文件、每条最多 9 张图、ZIP 最大 1GB。导入失败但已经完成上传的图片保持 `owner_only`，可以在媒体库复用或删除。
+
 如果升级前已经上传过媒体，可以选择运行一次哈希回填，让后续重复上传复用已有媒体。该命令只填写 SHA-256 并报告已有重复项，不会删除或合并文件：
 
 ```bash
@@ -116,8 +132,9 @@ docker compose ps
 ```
 
 数据库初始化是 additive、可重复执行的；Compose 会先完成 `db-init` 再启动后端。
+Excel 批量导入所需的 `posts.import_key` 也由该流程自动创建，不需要另行执行脚本。
 
-更新包含图片预览功能且服务器已有图片时，服务启动后执行一次：
+仅在首次升级到图片预览功能、且升级前服务器已有图片时执行一次。成功后后续更新无需重复运行：
 
 ```bash
 docker compose run --rm backend node dist/scripts/backfill-media-previews.js

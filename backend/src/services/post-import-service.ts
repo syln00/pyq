@@ -226,7 +226,7 @@ function normalizeLocation(value: unknown, errors: string[]): ImportLocation | n
   };
 }
 
-function preliminaryRow(raw: unknown, index: number, now: Date) {
+export function validateImportRowFields(raw: unknown, index: number, now = new Date()) {
   const errors: string[] = [];
   const value = raw && typeof raw === "object" && !Array.isArray(raw)
     ? raw as ImportRowInput
@@ -264,7 +264,7 @@ export async function validateImportRows(
   if (rawRows.length === 0) throw new Error("导入内容为空");
   if (rawRows.length > MAX_IMPORT_ROWS) throw new Error(`每批最多导入 ${MAX_IMPORT_ROWS} 条动态`);
 
-  const rows = rawRows.map((row, index) => preliminaryRow(row, index, now));
+  const rows = rawRows.map((row, index) => validateImportRowFields(row, index, now));
   const rowNumbers = new Set<number>();
   for (const row of rows) {
     if (rowNumbers.has(row.normalized.rowNumber)) row.errors.push("Excel 行号重复");
@@ -323,10 +323,10 @@ function normalizeMediaIds(value: unknown, imageCount: number) {
   return ids;
 }
 
-function importKeyFor(
+export function buildPostImportKey(
   row: NormalizedImportRow,
   selectedUserIds: string[],
-  media: Media[]
+  imageFingerprints: string[]
 ) {
   const payload = {
     content: row.content,
@@ -334,7 +334,7 @@ function importKeyFor(
     visibility: row.visibility,
     selectedUserIds: [...selectedUserIds].sort(),
     location: row.location,
-    images: media.map((item) => item.contentHash || `media:${item.id}`),
+    images: imageFingerprints,
   };
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
@@ -379,7 +379,11 @@ export async function importPostRows(rawRows: unknown, actor: TokenPayload, clie
       continue;
     }
 
-    const importKey = importKeyFor(row.normalized, row.selectedUserIds, orderedMedia);
+    const importKey = buildPostImportKey(
+      row.normalized,
+      row.selectedUserIds,
+      orderedMedia.map((item) => item.contentHash || `media:${item.id}`)
+    );
     const existing = await Post.findOne({ where: { userId: actor.id, importKey }, attributes: ["id"] });
     if (existing) {
       results.push({ rowNumber: row.rowNumber, status: "duplicate", postId: existing.id });
