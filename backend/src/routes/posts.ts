@@ -6,7 +6,6 @@ import { Post, Comment, Like, CommentLike, User, SiteSetting, Media } from "../m
 import { authenticate, authenticateOptional, AuthRequest, requireAdmin, requirePublisher } from "../middleware/auth";
 import { getClientIp } from "../utils/ip";
 import { getRegionByIp } from "../utils/region";
-import { generateShortId } from "../utils/short-id";
 import { triggerRevalidate } from "../utils/revalidate";
 import { checkCommentRate, recordCommentSuccess, resetViolations } from "../middleware/rateLimit";
 import { blacklistService } from "../services/blacklist-service";
@@ -21,9 +20,14 @@ import {
   replaceVisibleUsers,
   validateMediaIds,
   validateSelectedUsers,
-  type PostVisibility,
 } from "../services/post-access-service";
-import { mediaContentPath } from "../services/storage-service";
+import {
+  createPostWithAccess,
+  normalizeVisibility,
+  parsePublishedAt,
+  PostWriteValidationError,
+  validateS3MusicPayload,
+} from "../services/post-write-service";
 
 const router = Router();
 
@@ -129,58 +133,6 @@ function sortCommentsThreaded<T extends { id: string; replyTo?: string | null; r
   return result;
 }
 
-function normalizeMusicPayload(value: unknown) {
-  if (value == null) return null;
-  if (typeof value !== "object" || Array.isArray(value)) throw new Error("音乐信息格式无效");
-  const music = value as Record<string, unknown>;
-  if (music.source !== "upload" || typeof music.url !== "string" || !music.url) {
-    throw new Error("音乐仅支持已上传到 S3 的音频文件");
-  }
-  return music;
-}
-
-function managedMediaId(value: unknown) {
-  if (typeof value !== "string") return null;
-  return value.match(/\/api\/media\/([0-9a-f-]{36})\/content(?:[?#]|$)/i)?.[1] || null;
-}
-
-async function validateS3MusicPayload(value: unknown, userId: string) {
-  const music = normalizeMusicPayload(value);
-  if (!music) return { value: null, mediaIds: [] as string[] };
-  const url = music.url;
-  if (typeof url !== "string") throw new Error("音乐地址格式无效");
-  const audioId = managedMediaId(url);
-  const audio = audioId ? await Media.findOne({ where: { id: audioId, uploaderId: userId } }) : null;
-  if (!audio || !audio.mimeType.startsWith("audio/")) {
-    throw new Error("音乐必须引用本人上传的 S3 音频文件");
-  }
-  const mediaIds = [audio.id];
-  let coverUrl = "";
-  if (music.cover) {
-    if (typeof music.cover !== "string") throw new Error("音乐封面格式无效");
-    const coverId = managedMediaId(music.cover);
-    const cover = coverId ? await Media.findOne({ where: { id: coverId, uploaderId: userId } }) : null;
-    if (!cover || !cover.mimeType.startsWith("image/")) throw new Error("音乐封面必须引用本人上传的 S3 图片");
-    mediaIds.push(cover.id);
-    coverUrl = mediaContentPath(cover.id);
-  }
-  const name = typeof music.name === "string" ? music.name.trim().slice(0, 255) : "";
-  const artist = typeof music.artist === "string" ? music.artist.trim().slice(0, 255) : "";
-  const lrc = typeof music.lrc === "string" ? music.lrc.slice(0, 100_000) : undefined;
-  return {
-    value: {
-      name: name || audio.filename.replace(/\.[^.]+$/, ""),
-      artist,
-      cover: coverUrl,
-      url: mediaContentPath(audio.id),
-      source: "upload" as const,
-      ...(lrc ? { lrc } : {}),
-      ...(typeof music.autoplay === "boolean" ? { autoplay: music.autoplay } : {}),
-    },
-    mediaIds,
-  };
-}
-
 function formatPost(
   post: any,
   meLiked = false,
@@ -259,20 +211,6 @@ function formatPost(
         ? { visibleUserIds: (post.visibleUsers || []).map((u: any) => u.id) }
         : {}),
     };
-}
-
-function parsePublishedAt(value: unknown): Date {
-  if (value == null || value === "") return new Date();
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) throw new Error("发布时间格式无效");
-  if (date.getTime() > Date.now()) throw new Error("发布时间不能晚于当前时间");
-  return date;
-}
-
-function normalizeVisibility(value: unknown): PostVisibility {
-  return value === "public" || value === "selected" || value === "authenticated"
-    ? value
-    : "authenticated";
 }
 
 // GET /api/posts - list posts with pagination（排除广告，广告由 /api/ads 单独提供）
@@ -557,120 +495,22 @@ router.post(
       return;
     }
 
-    const {
-      type = "moment",
-      title = "",
-      excerpt = "",
-      cover = "",
-      category = "",
-      articleType = "original",
-      repostUrl = "",
-      content = "",
-      images = [],
-      location = null,
-      region: bodyRegion = "",
-      music = null,
-      linkCard = null,
-      video = null,
-      douban = null,
-      isAd = false,
-      likesDisabled = false,
-      commentsDisabled = false,
-      pinned = false,
-      status = "published",
-      visibility: visibilityValue = "authenticated",
-      visibleUserIds = [],
-      mediaIds = [],
-    } = req.body;
-
-    const visibility = normalizeVisibility(visibilityValue);
-    let publishedAt: Date;
-    let selectedUserIds: string[];
-    let requestedMediaIds: string[];
-    let normalizedMusicResult: Awaited<ReturnType<typeof validateS3MusicPayload>>;
+    let result: Awaited<ReturnType<typeof createPostWithAccess>>;
     try {
-      publishedAt = parsePublishedAt(req.body.publishedAt);
-      selectedUserIds = visibility === "selected"
-        ? await validateSelectedUsers(visibleUserIds, req.user!.id)
-        : [];
-      requestedMediaIds = await validateMediaIds(mediaIds, req.user!.id, req.user!.role === "admin");
-      normalizedMusicResult = await validateS3MusicPayload(music, req.user!.id);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message || "发布参数无效" });
-      return;
-    }
-    if (visibility === "selected" && selectedUserIds.length === 0) {
-      res.status(400).json({ message: "指定用户可见时至少选择一个用户" });
-      return;
-    }
-    const externalMedia = hasExternalMedia({ images, cover, music, linkCard, video, douban, content });
-    if (visibility !== "public" && externalMedia && req.body.acknowledgeExternalMediaRisk !== true) {
-      res.status(400).json({
-        message: "非公开内容包含外部媒体直链，外部资源无法受本站权限保护，请确认风险后再发布",
-        code: "EXTERNAL_MEDIA_ACK_REQUIRED",
+      result = await createPostWithAccess({
+        actor: req.user!,
+        input: req.body,
+        clientIp: getClientIp(req),
       });
-      return;
-    }
-
-    const normalizedMusic = normalizedMusicResult.value;
-    const approvedMediaIds = [...new Set([...requestedMediaIds, ...normalizedMusicResult.mediaIds])];
-
-    const isAdmin = req.user!.role === "admin";
-    const finalIsAd = isAdmin ? isAd : false;
-    // 广告和普通发布者都不能自行置顶。
-    const finalPinned = isAdmin && !finalIsAd ? pinned : false;
-
-    const ip = getClientIp(req);
-    const ipRegion = await getRegionByIp(ip);
-    const region = bodyRegion || ipRegion;
-
-    const transaction = await sequelize.transaction();
-    let post: Post | null = null;
-    try {
-      for (let attempt = 0; attempt < 5; attempt++) {
-        try {
-          post = await Post.create({
-          userId: req.user!.id,
-          shortId: generateShortId(),
-          type,
-          title,
-          excerpt,
-          cover,
-          category,
-          articleType,
-          repostUrl,
-          content,
-          images,
-          location,
-          music: normalizedMusic,
-          linkCard,
-          video,
-          douban,
-          isAd: finalIsAd,
-          likesDisabled,
-          commentsDisabled,
-          pinned: finalPinned,
-          status,
-          visibility: finalIsAd ? "public" : visibility,
-          publishedAt,
-          ip,
-          region,
-          }, { transaction });
-          break;
-        } catch (err: any) {
-          if (err.name === "SequelizeUniqueConstraintError" && attempt < 4) continue;
-          throw err;
-        }
+    } catch (error: any) {
+      if (error instanceof PostWriteValidationError) {
+        res.status(400).json({ message: error.message, ...(error.code ? { code: error.code } : {}) });
+        return;
       }
-      await replaceVisibleUsers(post!.id, selectedUserIds, transaction);
-      await replacePostMedia(post!.id, approvedMediaIds, transaction);
-      await transaction.commit();
-    } catch (error) {
-      await transaction.rollback();
       throw error;
     }
 
-    const full = await Post.findByPk(post!.id, {
+    const full = await Post.findByPk(result.post.id, {
       include: [
         { model: User, as: "author", attributes: ["id", "email", "username", "nickname", "avatar", "cover", "bio"] },
         { model: Comment, as: "comments" },
@@ -684,7 +524,7 @@ router.post(
 
     res.status(201).json({
       ...formatPost(full, false, undefined, req.user),
-      warnings: visibility !== "public" && externalMedia ? [{ code: "EXTERNAL_MEDIA_PUBLIC" }] : [],
+      warnings: result.visibility !== "public" && result.externalMedia ? [{ code: "EXTERNAL_MEDIA_PUBLIC" }] : [],
     });
   }
 );
