@@ -8,11 +8,12 @@ export type MediaKind = DirectUploadKind;
 export const IMAGE_FILE_ACCEPT = "image/*,.heic,.heif,image/heic,image/heif";
 export const AUDIO_FILE_ACCEPT = ".mp3,.wav,.ogg,.opus,.aac,.m4a,.flac,audio/mpeg,audio/wav,audio/ogg,audio/opus,audio/aac,audio/mp4,audio/flac";
 export const LYRIC_FILE_ACCEPT = ".lrc,text/plain";
-export type DirectUploadPhase = "convert" | "presign" | "put" | "confirm" | "network";
+export type DirectUploadPhase = "convert" | "hash" | "presign" | "put" | "confirm" | "complete" | "network";
 
 export interface DirectUploadOptions {
   signal?: AbortSignal;
-  onProgress?: (percent: number) => void;
+  onPhase?: (phase: DirectUploadPhase) => void;
+  onProgress?: (percent: number, loadedBytes: number, totalBytes: number) => void;
   /** Live-photo components must remain distinct because their pairing is stored on Media. */
   deduplicate?: boolean;
 }
@@ -95,6 +96,66 @@ async function fileSha256(file: File, signal?: AbortSignal): Promise<string | nu
   const digest = await globalThis.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
   if (signal?.aborted) throw new DOMException("Upload aborted", "AbortError");
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function putFileWithProgress(
+  uploadUrl: string,
+  uploadFile: File,
+  mimeType: string,
+  options: DirectUploadOptions
+): Promise<Response> {
+  if (!options.onProgress || typeof XMLHttpRequest === "undefined") {
+    return fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": mimeType },
+      body: uploadFile,
+      signal: options.signal,
+    });
+  }
+
+  return new Promise<Response>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+
+    const cleanup = () => options.signal?.removeEventListener("abort", abortUpload);
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const abortUpload = () => xhr.abort();
+
+    xhr.open("PUT", uploadUrl);
+    xhr.setRequestHeader("Content-Type", mimeType);
+    xhr.upload.onprogress = (event) => {
+      const total = event.lengthComputable && event.total > 0 ? event.total : uploadFile.size;
+      const loaded = Math.min(event.loaded, total);
+      options.onProgress?.(total > 0 ? Math.round((loaded / total) * 100) : 0, loaded, total);
+    };
+    xhr.onload = () => finish(() => {
+      const headers = new Headers();
+      const requestId = xhr.getResponseHeader("x-amz-request-id");
+      const cfRay = xhr.getResponseHeader("cf-ray");
+      if (requestId) headers.set("x-amz-request-id", requestId);
+      if (cfRay) headers.set("cf-ray", cfRay);
+      options.onProgress?.(100, uploadFile.size, uploadFile.size);
+      resolve(new Response(xhr.responseText || "", { status: xhr.status, headers }));
+    });
+    xhr.onerror = () => finish(() => reject(new DirectUploadError(
+      "network",
+      "浏览器无法连接 S3 上传地址。请检查存储桶 CORS、网络连接和 S3 域名。"
+    )));
+    xhr.onabort = () => finish(() => reject(new DOMException("Upload aborted", "AbortError")));
+    xhr.ontimeout = () => finish(() => reject(new DirectUploadError("network", "上传超时，请检查网络后重试。")));
+
+    if (options.signal?.aborted) {
+      finish(() => reject(new DOMException("Upload aborted", "AbortError")));
+      return;
+    }
+    options.signal?.addEventListener("abort", abortUpload, { once: true });
+    xhr.send(uploadFile);
+  });
 }
 
 /** A safe, user-displayable failure. It deliberately never retains a presigned URL. */
@@ -192,12 +253,14 @@ export async function uploadDirect(
   kind: DirectUploadKind,
   options: DirectUploadOptions = {}
 ): Promise<UploadedMedia> {
+  options.onPhase?.("convert");
   const uploadFile = kind === "image" ? await normalizeImageForUpload(file, options.signal) : file;
   const mimeType = normalizedMimeType(uploadFile);
   const apiUrl = getApiUrl();
   const shouldDeduplicate = options.deduplicate !== false;
   let contentHash: string | null = null;
   if (shouldDeduplicate) {
+    options.onPhase?.("hash");
     try {
       contentHash = await fileSha256(uploadFile, options.signal);
     } catch (error) {
@@ -206,6 +269,7 @@ export async function uploadDirect(
     }
   }
   let presign: Response;
+  options.onPhase?.("presign");
   try {
     presign = await fetch(`${apiUrl}/media/presign`, {
       method: "POST",
@@ -223,7 +287,8 @@ export async function uploadDirect(
       }),
       signal: options.signal,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new DirectUploadError("network", "无法连接上传服务，请检查网络后重试。");
   }
   if (!presign.ok) {
@@ -232,7 +297,8 @@ export async function uploadDirect(
 
   const { intentId, uploadUrl, maxSize, existingMedia } = await presign.json();
   if (existingMedia?.id && existingMedia?.url) {
-    options.onProgress?.(100);
+    options.onProgress?.(100, uploadFile.size, uploadFile.size);
+    options.onPhase?.("complete");
     return existingMedia as UploadedMedia;
   }
   if (!intentId || !uploadUrl) throw new DirectUploadError("presign", "上传服务返回了无效的上传地址。");
@@ -240,16 +306,14 @@ export async function uploadDirect(
     throw new DirectUploadError("presign", `文件大小超过 ${(Number(maxSize) / 1024 / 1024).toFixed(0)}MB 限制。`);
   }
 
-  options.onProgress?.(0);
+  options.onPhase?.("put");
+  options.onProgress?.(0, 0, uploadFile.size);
   let put: Response;
   try {
-    put = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": mimeType },
-      body: uploadFile,
-      signal: options.signal,
-    });
-  } catch {
+    put = await putFileWithProgress(uploadUrl, uploadFile, mimeType, options);
+  } catch (error) {
+    if (error instanceof DirectUploadError) throw error;
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new DirectUploadError(
       "network",
       "浏览器无法连接 S3 上传地址。请检查存储桶 CORS 是否允许当前站点的 PUT 请求，以及网络连接。"
@@ -259,9 +323,10 @@ export async function uploadDirect(
     const requestId = put.headers.get("cf-ray") || put.headers.get("x-amz-request-id") || undefined;
     throw new DirectUploadError("put", await readS3Error(put), put.status, requestId);
   }
-  options.onProgress?.(100);
+  options.onProgress?.(100, uploadFile.size, uploadFile.size);
 
   let confirm: Response;
+  options.onPhase?.("confirm");
   try {
     confirm = await fetch(`${apiUrl}/media/confirm`, {
       method: "POST",
@@ -272,13 +337,16 @@ export async function uploadDirect(
       body: JSON.stringify({ intentId }),
       signal: options.signal,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new DirectUploadError("network", "文件已上传到 S3，但无法连接确认服务；请检查网络后重试。");
   }
   if (!confirm.ok) {
     throw new DirectUploadError("confirm", await readError(confirm, "确认上传失败"), confirm.status);
   }
-  return confirm.json();
+  const media = await confirm.json();
+  options.onPhase?.("complete");
+  return media;
 }
 
 export async function uploadImage(file: File, token: string, options?: DirectUploadOptions): Promise<string> {

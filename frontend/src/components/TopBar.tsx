@@ -44,7 +44,7 @@ import { getGlobalAudio } from "@/lib/global-audio";
 import { useMusicPlayer } from "@/lib/music-player-store";
 import { Post, type PostLocation, type PostImage, type PostVideo, type PostDouban } from "@/lib/mock-data";
 import { isLivePhoto, getImageSrc } from "@/lib/post-image";
-import { IMAGE_FILE_ACCEPT, isImageUploadFile, managedMediaPreviewUrl, uploadAudio, uploadDirect, uploadImage, uploadVideo, toAbsoluteUrl, toHttps } from "@/lib/upload";
+import { IMAGE_FILE_ACCEPT, isImageUploadFile, managedMediaPreviewUrl, uploadAudio, uploadDirect, uploadImage, uploadVideo, toAbsoluteUrl, toHttps, type DirectUploadPhase } from "@/lib/upload";
 import { PUBLIC_API_URL } from "@/lib/api-fetch";
 import { authErrorMessage, getSessionUser, logoutSession, refreshSessionUser, setSessionUser, type SessionUser } from "@/lib/auth";
 import { collectManagedMediaIds, dateTimeLocalToIso, hasExternalMediaReferences, toDateTimeLocal } from "@/lib/post-media";
@@ -63,6 +63,31 @@ import PostAccessFields, { type PostVisibility } from "./PostAccessFields";
 
 const API_URL = PUBLIC_API_URL;
 const AUDIO_BASE = API_URL.replace("/api", "");
+const POST_IMAGE_UPLOAD_CONCURRENCY = 3;
+
+interface PostImageUploadProgress {
+  phase: DirectUploadPhase;
+  completed: number;
+  total: number;
+  loadedBytes: number;
+  totalBytes: number;
+}
+
+function formatUploadBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function uploadPhaseLabel(phase: DirectUploadPhase) {
+  if (phase === "convert") return "正在转换图片";
+  if (phase === "hash") return "正在检查重复图片";
+  if (phase === "presign") return "正在准备上传";
+  if (phase === "put") return "正在上传到存储";
+  if (phase === "confirm") return "正在校验并登记媒体";
+  if (phase === "complete") return "图片处理完成";
+  return "正在上传图片";
+}
 
 function toAbsolute(url: string): string {
   if (!url || typeof url !== "string") return "";
@@ -1031,6 +1056,7 @@ export function PublishModal({
   const [content, setContent] = useState(editPost?.content ?? "");
   const [images, setImages] = useState<PostImage[]>(editPost?.images ?? []);
   const [uploading, setUploading] = useState(false);
+  const [imageUploadProgress, setImageUploadProgress] = useState<PostImageUploadProgress | null>(null);
   // 图片上传模式：normal=普通图片，live=实况图（需配对图片+视频），video=短视频
   const [uploadMode, setUploadMode] = useState<"normal" | "live" | "video">(
     editPost?.video ? "video" : "normal"
@@ -1156,9 +1182,73 @@ export function PublishModal({
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setUploading(true);
+    setImageUploadProgress(null);
     setError("");
     try {
       const fileArr = Array.from(files);
+
+      if (uploadMode === "normal") {
+        const availableSlots = Math.max(0, 9 - images.length);
+        const imageFiles = fileArr.filter(isImageUploadFile).slice(0, availableSlots);
+        if (imageFiles.length === 0) return;
+
+        const uploadedBytes = new Map<number, number>();
+        const totalBytes = new Map(imageFiles.map((file, index) => [index, file.size]));
+        const uploadedUrls: Array<string | null> = Array.from({ length: imageFiles.length }, () => null);
+        const failures: string[] = [];
+        let cursor = 0;
+        let completed = 0;
+        let latestPhase: DirectUploadPhase = "convert";
+
+        const publishProgress = (phase = latestPhase) => {
+          latestPhase = phase;
+          setImageUploadProgress({
+            phase,
+            completed,
+            total: imageFiles.length,
+            loadedBytes: [...uploadedBytes.values()].reduce((sum, size) => sum + size, 0),
+            totalBytes: [...totalBytes.values()].reduce((sum, size) => sum + size, 0),
+          });
+        };
+        publishProgress();
+
+        const worker = async () => {
+          while (cursor < imageFiles.length) {
+            const index = cursor++;
+            const file = imageFiles[index];
+            try {
+              uploadedUrls[index] = await uploadImage(file, token, {
+                onPhase: (phase) => publishProgress(phase),
+                onProgress: (_percent, loaded, total) => {
+                  uploadedBytes.set(index, loaded);
+                  totalBytes.set(index, total || file.size);
+                  publishProgress("put");
+                },
+              });
+            } catch (error) {
+              failures.push(`${file.name}：${error instanceof Error ? error.message : "上传失败"}`);
+            } finally {
+              completed += 1;
+              publishProgress(completed === imageFiles.length ? "complete" : latestPhase);
+            }
+          }
+        };
+
+        await Promise.all(
+          Array.from(
+            { length: Math.min(POST_IMAGE_UPLOAD_CONCURRENCY, imageFiles.length) },
+            () => worker()
+          )
+        );
+        const successful = uploadedUrls.filter((url): url is string => Boolean(url));
+        if (successful.length > 0) {
+          setImages((prev) => [...prev, ...successful].slice(0, 9));
+        }
+        if (failures.length > 0) {
+          setError(failures.length === 1 ? failures[0] : `${failures.length} 张图片上传失败：${failures.join("；")}`);
+        }
+        return;
+      }
 
       // 实况图模式 + 单个图片文件 → 尝试动态照片提取
       if (uploadMode === "live" && fileArr.length === 1 && isImageUploadFile(fileArr[0])) {
@@ -1228,6 +1318,7 @@ export function PublishModal({
       setError("网络错误，上传失败");
     } finally {
       setUploading(false);
+      setImageUploadProgress(null);
     }
   };
 
@@ -1700,6 +1791,27 @@ export function PublishModal({
           <p className="mt-2 text-xs text-wechat-time">
             {imgCount}/9 张图片
           </p>
+        )}
+
+        {uploading && imageUploadProgress && (
+          <div className="mt-2 rounded-lg border border-wechat-border bg-wechat-bubble px-3 py-2 text-xs text-wechat-time dark:border-white/10 dark:bg-white/5">
+            <div className="flex items-center justify-between gap-3">
+              <span>{uploadPhaseLabel(imageUploadProgress.phase)} · {imageUploadProgress.completed}/{imageUploadProgress.total} 张</span>
+              <span>
+                {formatUploadBytes(imageUploadProgress.loadedBytes)} / {formatUploadBytes(imageUploadProgress.totalBytes)}
+              </span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+              <div
+                className="h-full rounded-full bg-wechat-nickname transition-[width] duration-150"
+                style={{
+                  width: `${imageUploadProgress.totalBytes > 0
+                    ? Math.min(100, Math.round((imageUploadProgress.loadedBytes / imageUploadProgress.totalBytes) * 100))
+                    : 0}%`,
+                }}
+              />
+            </div>
+          </div>
         )}
 
         {/* 从媒体库选择 — 小胶囊按钮，点击展开三排横向滚动图片列表 */}
