@@ -1533,8 +1533,13 @@ export function PublishModal({
   const accessReady = (
     effectiveVisibility !== "selected" || visibleUserIds.length > 0
   ) && (!externalMediaRisk || acknowledgeExternalMediaRisk) && !!publishedAt;
+  const mediaUploadBusy = uploading || videoUploading;
 
   const handleSubmit = async () => {
+    if (mediaUploadBusy) {
+      setError("请等待图片或视频上传完成后再发表");
+      return;
+    }
     if (!hasPublishableContent || !accessReady) return;
     setSubmitting(true);
     setError("");
@@ -1642,10 +1647,10 @@ export function PublishModal({
         </button>
         <button
           onClick={handleSubmit}
-          disabled={submitting || !hasPublishableContent || !accessReady}
+          disabled={submitting || mediaUploadBusy || !hasPublishableContent || !accessReady}
           className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors disabled:bg-wechat-bubble disabled:text-wechat-time enabled:bg-green-500 enabled:text-white enabled:hover:bg-green-600 dark:disabled:bg-white/5 dark:disabled:text-gray-500"
         >
-          {submitting ? (isEdit ? "保存中" : "发表中") : isEdit ? "保存" : "发表"}
+          {mediaUploadBusy ? "媒体上传中" : submitting ? (isEdit ? "保存中" : "发表中") : isEdit ? "保存" : "发表"}
         </button>
       </div>
 
