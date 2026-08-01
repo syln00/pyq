@@ -53,6 +53,8 @@ Excel 的“图片文件”列填写 `001.jpg|002.heic` 或完整的 `images/001
 
 ZIP 在浏览器本地解析，不会整体上传给后端，因此 Docker、Vercel + R2 和 NAS S3 均可使用。浏览器仍需能够访问 `S3_PRESIGN_ENDPOINT`，并且 Bucket CORS 必须允许站点来源执行 PUT。
 
+普通动态一次选择多张图片时也会以最多 3 路并发上传，并显示本地转换、哈希查重、S3 字节进度和服务端确认阶段。图片完成哈希校验、从 `staging/` 提升为正式对象并登记 Media 后即可用于发表动态；WebP 预览图由后端单路后台队列继续生成，不阻塞发表。预览尚未完成时页面会暂时回退原图，服务重启导致后台任务中断时，下一次预览请求会自动补做。
+
 ## Docker 服务器部署
 
 项目已经包含 Next.js、Express、MySQL 8、MinIO 和 Caddy 的完整 Compose。Caddy 只对外开放 80/443，MySQL、MinIO Console 和应用容器保留在 Docker 内部网络。
@@ -152,7 +154,7 @@ docker compose logs --tail=100 db-init minio-init backend frontend caddy
 
 内置 MinIO 会自动清理超过 `S3_STAGING_EXPIRY_DAYS` 的 `staging/` 中断上传，默认保留一天。
 
-如果更新前已经有图片，可以在服务启动后可选执行一次预览图回填。新上传图片会自动生成，无需运行此命令：
+如果更新前已经有图片，可以在服务启动后可选执行一次预览图回填。新上传图片会在后台自动生成，无需运行此命令：
 
 ```bash
 docker compose run --rm backend node dist/scripts/backfill-media-previews.js

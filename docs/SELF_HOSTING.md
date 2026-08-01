@@ -81,6 +81,12 @@ docker compose logs --tail=100 db-init minio-init backend frontend caddy
 
 打开 `SITE_URL`，使用初始管理员登录。注册默认关闭，可在后台站点设置中开启。开启后新账号仍需管理员审核。
 
+### 动态图片上传阶段
+
+普通动态一次选择多张图片时最多 3 路并发。前端会分别显示图片转换、SHA-256 查重、S3 PUT 字节进度和服务端确认。服务端确认仍会同步完成对象大小与哈希校验、`staging/` 提升和 Media 登记；只有拿到有效 `mediaId` 后图片才允许绑定帖子。
+
+WebP 预览图不在确认请求中生成，而是进入单路后台队列，因此确认完成后即可发表动态。预览生成前，`?variant=preview` 会回退原图；如果后端在队列完成前重启，后续预览请求会重新调度，或者可以手工执行 `storage:backfill-previews`。这样不会用未校验对象发帖，也不会让 Sharp 转码阻塞发布界面。
+
 ### Excel 批量导入历史动态
 
 管理员可以在“动态管理 → Excel 批量导入”下载模板 ZIP。`moments.xlsx` 放在 ZIP 根目录，图片放在 `images/`，Excel 的图片列填写图片文件名或 `images/` 下的相对路径。
