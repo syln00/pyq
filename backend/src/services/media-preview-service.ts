@@ -1,10 +1,14 @@
 import sharp from "sharp";
-import type Media from "../models/Media";
+import Media from "../models/Media";
 import { downloadObject, extractObjectKey, uploadObject } from "./s3-service";
 
 const PREVIEW_MAX_WIDTH = 1280;
 const PREVIEW_QUALITY = 80;
 const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
+const previewJobs = new Set<string>();
+const previewQueue: string[] = [];
+const PREVIEW_JOB_CONCURRENCY = 1;
+let activePreviewJobs = 0;
 
 export interface MediaPreviewResult {
   previewObjectKey: string;
@@ -69,7 +73,7 @@ export async function generateImagePreviewSafely(
 
 export async function ensureMediaPreview(media: Media, sourceBuffer?: Buffer) {
   if (!media.mimeType.startsWith("image/")) return media;
-  if (media.previewObjectKey && media.width && media.height) return media;
+  if (media.width && media.height) return media;
 
   const objectKey = media.objectKey || extractObjectKey(media.url);
   if (!objectKey) return media;
@@ -82,4 +86,36 @@ export async function ensureMediaPreview(media: Media, sourceBuffer?: Buffer) {
     });
   }
   return media;
+}
+
+/**
+ * Generate previews outside the upload response path. A later preview request
+ * schedules the same idempotent work again if the process restarted before the
+ * first job completed.
+ */
+function drainPreviewQueue() {
+  while (activePreviewJobs < PREVIEW_JOB_CONCURRENCY && previewQueue.length > 0) {
+    const mediaId = previewQueue.shift();
+    if (!mediaId) return;
+    activePreviewJobs += 1;
+    setImmediate(async () => {
+      try {
+        const media = await Media.findByPk(mediaId);
+        if (media) await ensureMediaPreview(media);
+      } catch (error) {
+        console.warn(`[media] background preview generation failed for ${mediaId}:`, error);
+      } finally {
+        activePreviewJobs -= 1;
+        previewJobs.delete(mediaId);
+        drainPreviewQueue();
+      }
+    });
+  }
+}
+
+export function scheduleMediaPreview(mediaId: string) {
+  if (!mediaId || previewJobs.has(mediaId)) return;
+  previewJobs.add(mediaId);
+  previewQueue.push(mediaId);
+  drainPreviewQueue();
 }

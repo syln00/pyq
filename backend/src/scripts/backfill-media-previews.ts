@@ -9,7 +9,6 @@ async function main() {
       where: {
         mimeType: { [Op.like]: "image/%" },
         [Op.or]: [
-          { previewObjectKey: "" },
           { width: { [Op.is]: null } },
           { height: { [Op.is]: null } },
         ],

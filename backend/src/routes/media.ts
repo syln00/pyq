@@ -26,7 +26,7 @@ import {
   streamObject,
 } from "../services/s3-service";
 import { canViewPost } from "../services/post-access-service";
-import { ensureMediaPreview, generateImagePreviewSafely } from "../services/media-preview-service";
+import { scheduleMediaPreview } from "../services/media-preview-service";
 
 const router = Router();
 
@@ -289,7 +289,7 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
             size: object.size,
           });
         }
-        await ensureMediaPreview(existing);
+        scheduleMediaPreview(existing.id);
         await intent.update({ status: "confirmed", confirmedAt: new Date() });
         res.status(200).json({ ...formatMedia(existing), deduplicated: true });
         return;
@@ -297,7 +297,6 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
     }
 
     const objectKey = await promoteObject(intent.stagingKey, intent.finalKey, intent.mimeType);
-    const preview = await generateImagePreviewSafely(objectKey, intent.mimeType);
     const mediaId = uuidv4();
     const url = mediaContentPath(mediaId);
     let media: Media;
@@ -307,9 +306,6 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
         filename: intent.filename,
         url,
         objectKey,
-        previewObjectKey: preview.previewObjectKey,
-        width: preview.width,
-        height: preview.height,
         contentHash,
         storageType: "s3",
         accessClass: "owner_only",
@@ -319,14 +315,11 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
         uploaderId: intent.uploaderId,
       });
     } catch (error) {
-      await Promise.all([
-        deleteObject(objectKey),
-        preview.previewObjectKey ? deleteObject(preview.previewObjectKey) : Promise.resolve(false),
-      ]);
+      await deleteObject(objectKey);
       if (contentHash && error instanceof UniqueConstraintError) {
         const existing = await findReusableMedia(intent.uploaderId, contentHash, intent.kind, object.size);
         if (existing) {
-          await ensureMediaPreview(existing);
+          scheduleMediaPreview(existing.id);
           await intent.update({ status: "confirmed", confirmedAt: new Date() });
           res.status(200).json({ ...formatMedia(existing), deduplicated: true });
           return;
@@ -339,6 +332,7 @@ router.post("/confirm", authenticate, requirePublisher, async (req: AuthRequest,
       include: [{ model: User, as: "uploader", attributes: ["id", "username", "nickname"] }],
     });
     res.status(201).json({ ...formatMedia(full), deduplicated: false });
+    scheduleMediaPreview(media.id);
   } catch (err: any) {
     res.status(500).json({ message: err.message || "登记媒体记录失败" });
   }
@@ -433,6 +427,9 @@ router.get(
     if (variant !== "original" && variant !== "preview") {
       res.status(404).json({ message: "媒体不存在" });
       return;
+    }
+    if (variant === "preview" && !media.previewObjectKey && !(media.width && media.height) && media.kind === "image") {
+      scheduleMediaPreview(media.id);
     }
     const usePreview = variant === "preview" && Boolean(media.previewObjectKey);
     const objectKey = usePreview ? media.previewObjectKey : media.objectKey || extractObjectKey(media.url);
